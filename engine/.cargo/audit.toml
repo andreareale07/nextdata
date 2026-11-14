@@ -1,0 +1,7 @@
+[advisories]
+# RUSTSEC-2023-0071 (Marvin attack, `rsa` crate): timing side channel on RSA *private-key* operations,
+# exploitable by an observer who can time many operations. NextData only performs RSA signing for the
+# user's OWN client key on their own device (no network oracle, no decryption); the remote host key is a
+# public-key verification. `russh` pins `rsa = "=0.10.0-rc.18"` so the patched 0.10.0 cannot be selected yet.
+# Re-evaluate on every russh release; remove this ignore as soon as russh allows rsa >= 0.10.0.
+ignore = ["RUSTSEC-2023-0071"]

@@ -1,0 +1,17 @@
+target/
+build/
+.gradle/
+.idea/
+*.iml
+local.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+dist/
+node_modules/
+__pycache__/
+infra/test-env/data/
+infra/test-env/.venv/
+*.log

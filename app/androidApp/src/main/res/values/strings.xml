@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">NextData</string>
+    <string name="transfer_channel_name">Transfers</string>
+    <string name="transfer_notification_title">NextData transfers</string>
+    <plurals name="transfer_notification_text">
+        <item quantity="one">%d transfer in progress</item>
+        <item quantity="other">%d transfers in progress</item>
+    </plurals>
+</resources>

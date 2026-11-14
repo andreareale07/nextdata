@@ -1,0 +1,55 @@
+name: Segnala un bug
+description: Qualcosa non funziona come dovrebbe
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie per la segnalazione. **Non includere password, chiavi, indirizzi di server privati o dati personali.**
+        Per vulnerabilità di sicurezza usa la [segnalazione privata](https://github.com/andreareale07/nextdata/security/advisories/new).
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Piattaforma
+      options: [Windows, Android]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versione di NextData
+      description: Dalle Impostazioni, o dal nome del file scaricato (es. 0.1.0-beta.1)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Versione del sistema operativo / dispositivo
+      placeholder: "Windows 11 23H2 · Pixel 8, Android 15"
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocollo coinvolto
+      options: [SFTP, WebDAV, S3, Non applicabile]
+  - type: textarea
+    id: what
+    attributes:
+      label: Cosa succede
+      description: Cosa ti aspettavi e cosa è successo invece.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passi per riprodurlo
+      placeholder: |
+        1. Apri…
+        2. Tocca…
+        3. Osserva…
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshot, codice errore, altro
+      description: Se compare un codice d'errore (es. `HOST_KEY_CHANGED`), riportalo.

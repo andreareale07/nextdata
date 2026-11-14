@@ -1,0 +1,27 @@
+name: Proponi una funzionalità
+description: Un'idea per migliorare NextData
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Che problema vuoi risolvere?
+      description: Descrivi la situazione d'uso, non solo la soluzione.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Cosa proponi
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative considerate
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Piattaforme interessate
+      multiple: true
+      options: [Windows, Android]
