@@ -6,4 +6,7 @@
         <item quantity="one">%d transfer in progress</item>
         <item quantity="other">%d transfers in progress</item>
     </plurals>
+    <string name="media_play">Play</string>
+    <string name="media_pause">Pause</string>
+    <string name="media_error">This file cannot be played from the server. Open it with another app instead.</string>
 </resources>

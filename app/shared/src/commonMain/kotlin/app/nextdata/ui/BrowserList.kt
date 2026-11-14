@@ -304,7 +304,7 @@ private fun handleClick(
         when {
             state.selectionMode -> vm.toggleSelection(e.ref)
             e.kind == EntryKind.DIR || e.kind == EntryKind.SYMLINK -> onOpen(e)
-            else -> onMore(e)
+            else -> onOpen(e)
         }
     } else {
         val m = window.keyboardModifiers

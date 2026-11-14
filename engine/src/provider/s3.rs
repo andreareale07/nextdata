@@ -4,7 +4,7 @@ use super::{Progress, Provider, Reader, Trust, CHUNK};
 use crate::crypto::{hmac_sha256, sha256_hex};
 use crate::dates::{amz_datetime, now_secs, parse_rfc3339};
 use crate::error::{Code, NdError, Result};
-use crate::types::{EntryKind, Profile, RawEntry, S3Cfg, Secrets};
+use crate::types::{EntryKind, Profile, RawEntry, RemoteVersion, S3Cfg, Secrets, VersionStrength};
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
@@ -413,6 +413,74 @@ impl Provider for S3Provider {
             tokio::io::copy(&mut AsyncReadExt::take(&mut reader, offset), &mut tokio::io::sink()).await?;
         }
         Ok(Box::new(reader))
+    }
+
+    async fn version(&self, path: &str) -> Result<RemoteVersion> {
+        let key = key_of(path);
+        if key.is_empty() {
+            return Err(NdError::new(Code::InvalidArgument).with("path", path).detail("not a file"));
+        }
+        let r = match self.send_q("HEAD", &key, &[], vec![], path).await {
+            Ok(r) => r,
+            Err(e) if e.code == Code::NotFound => {
+                // a "directory" is only a key prefix in S3: report it as not-a-file, not as missing
+                return match self.stat(path).await {
+                    Ok(st) if st.kind == EntryKind::Dir => Err(NdError::new(Code::InvalidArgument).with("path", path).detail("not a file")),
+                    _ => Err(e),
+                };
+            }
+            Err(e) => return Err(e),
+        };
+        let h = r.headers();
+        let get = |n: &str| h.get(n).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+        let etag = get("etag").map(|e| e.trim_matches('"').to_string()).filter(|e| !e.is_empty());
+        let version_id = get("x-amz-version-id");
+        Ok(RemoteVersion {
+            size: get("content-length").and_then(|v| v.parse().ok()),
+            mtime_ms: get("last-modified").as_deref().and_then(crate::dates::parse_http_date),
+            mtime_resolution_ms: 1000,
+            strength: if etag.is_some() || version_id.is_some() { VersionStrength::Strong } else { VersionStrength::Weak },
+            etag,
+            version_id,
+        })
+    }
+
+    async fn read_at(&self, path: &str, offset: u64, len: usize, pin: &RemoteVersion) -> Result<Vec<u8>> {
+        if len == 0 || pin.size.is_some_and(|s| offset >= s) {
+            return Ok(vec![]);
+        }
+        let last = offset + len as u64 - 1;
+        let mut extra = vec![("range".to_string(), format!("bytes={offset}-{last}"))];
+        if let Some(e) = &pin.etag {
+            extra.push(("if-match".to_string(), format!("\"{e}\"")));
+        }
+        let empty = sha256_hex(b"");
+        let mut rb = self.request("GET", &key_of(path), &[], vec![], &empty);
+        for (k, v) in extra {
+            rb = rb.header(k, v);
+        }
+        let r = rb.send().await.map_err(|e| map_reqwest(e, &self.slot))?;
+        if r.status() == StatusCode::PRECONDITION_FAILED {
+            return Err(NdError::new(Code::VersionChanged).with("path", path));
+        }
+        let r = self.check(r, path).await?;
+        if r.status() != StatusCode::PARTIAL_CONTENT {
+            // 200 = full body: the server ignored Range (never buffer a whole object by accident)
+            return Err(NdError::new(Code::RangeUnsupported).with("path", path));
+        }
+        let mut buf = Vec::with_capacity(len);
+        let mut st = r.bytes_stream();
+        while let Some(c) = st.next().await {
+            buf.extend_from_slice(&c.map_err(|e| map_reqwest(e, &self.slot))?);
+            if buf.len() > len {
+                return Err(NdError::new(Code::ServerAnomaly).with("path", path).detail("server sent more data than requested"));
+            }
+        }
+        Ok(buf)
+    }
+
+    async fn replace(&self, ctx: &crate::replace::ReplaceCtx, src: Reader, log: &mut dyn crate::journal::ReplaceLog, pr: &Progress) -> Result<crate::replace::Replaced> {
+        super::replace_via_put(self, ctx, src, true, log, pr).await
     }
 
     async fn put(&self, path: &str, mut src: Reader, size: u64, overwrite: bool, pr: &Progress) -> Result<()> {

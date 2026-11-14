@@ -105,6 +105,8 @@ class BrowserViewModel(
     private val askDownloadLocation: () -> Boolean = { true },
     /** Reports every folder successfully listed (persist last folder / recents). */
     private val onLocation: (ref: String, name: String) -> Unit = { _, _ -> },
+    /** Shows files without downloading them (docs/open-edit.md); null = taps fall back to downloading. */
+    private val opener: OpenManager? = null,
 ) {
     private val _state = MutableStateFlow(BrowserState())
     val state: StateFlow<BrowserState> = _state.asStateFlow()
@@ -345,6 +347,12 @@ class BrowserViewModel(
             )
             _state.update { it.copy(message = UiMessage.DownloadQueued(entries.size)) }
         }
+    }
+
+    /** Opens a file in place (viewer / other app) instead of downloading it. */
+    fun openFile(entry: Entry) {
+        val o = opener
+        if (o == null) download(listOf(entry)) else o.open(sessionId, entry, _state.value.entries)
     }
 
     fun uploadFiles() {

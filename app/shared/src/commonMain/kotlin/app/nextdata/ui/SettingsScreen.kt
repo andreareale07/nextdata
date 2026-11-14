@@ -143,6 +143,20 @@ fun SettingsScreen(controller: AppController, onBack: () -> Unit) {
 
                 // ---- browsing
                 SectionLabel(stringResource(Res.string.settings_files))
+                val pendingDocs by controller.opener.pending.collectAsState()
+                LaunchedEffect(Unit) { controller.opener.refreshPending() }
+                Row(
+                    Modifier.fillMaxWidth().clickable { controller.opener.showPending(true) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(Res.string.pending_title), style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            if (pendingDocs.isEmpty()) stringResource(Res.string.pending_none) else stringResource(Res.string.msg_pending_found, pendingDocs.size),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 Row(
                     Modifier.fillMaxWidth().clickable(role = Role.Switch) { controller.settings.update { it.copy(askDownloadLocation = !it.askDownloadLocation) } }.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -152,6 +166,16 @@ fun SettingsScreen(controller: AppController, onBack: () -> Unit) {
                         Text(stringResource(Res.string.settings_ask_download_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(settings.askDownloadLocation, onCheckedChange = null)
+                }
+                Row(
+                    Modifier.fillMaxWidth().clickable(role = Role.Switch) { controller.settings.update { it.copy(autoSaveExternal = !it.autoSaveExternal) } }.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(Res.string.settings_autosave_external), style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(Res.string.settings_autosave_external_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(settings.autoSaveExternal, onCheckedChange = null)
                 }
                 Row(
                     Modifier.fillMaxWidth().clickable(role = Role.Switch) { controller.settings.update { it.copy(showHidden = !it.showHidden) } }.padding(horizontal = 16.dp, vertical = 8.dp),

@@ -44,7 +44,7 @@ class I18nTest {
 
     @Test
     fun everyProtocolErrorCodeHasAStringInItalianAndEnglish() {
-        assertEquals(23, ErrorCodes.all.size, "protocol.md defines 23 error codes")
+        assertEquals(27, ErrorCodes.all.size, "protocol.md defines 27 error codes")
         ErrorCodes.all.forEach { code ->
             assertTrue("string:err_$code" in en, "EN missing err_$code")
             assertTrue("string:err_$code" in itl, "IT missing err_$code")

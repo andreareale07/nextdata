@@ -21,6 +21,7 @@ import app.nextdata.protocol.ProtocolId
 import app.nextdata.protocol.ProtocolInfo
 import app.nextdata.protocol.SortKey
 import app.nextdata.protocol.Collision
+import app.nextdata.protocol.DocState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -333,8 +334,99 @@ class FakeEngine(
                 favorites[str("profile_id")]?.removeAll { it.ref == str("ref") }
                 favoritesJson(str("profile_id"))
             }
+            "open.prepare" -> {
+                val sid = str("session")
+                val profileId = sessions[sid] ?: err(ErrorCodes.SESSION_CLOSED)
+                val node = nodes[str("ref")] ?: err(ErrorCodes.NOT_FOUND, "path" to str("ref"))
+                if (node.kind != EntryKind.FILE) err(ErrorCodes.INVALID_ARGUMENT)
+                val existing = docs.values.firstOrNull { it.profileId == profileId && it.remoteRef == node.ref }
+                val d = existing ?: FakeDoc("d${++docCounter}", profileId, node.ref, node.name, node.size ?: 0).also { docs[it.id] = it }
+                buildJsonObject {
+                    put("doc", docJson(d))
+                    put("from_cache", existing != null)
+                    put("remote_changed", false)
+                }
+            }
+            "open.check" -> {
+                val d = docs[str("doc_id")] ?: err(ErrorCodes.NOT_FOUND)
+                if (d.id in localEdits && d.state == DocState.CLEAN) d.state = DocState.MODIFIED
+                buildJsonObject {
+                    put("doc", docJson(d))
+                    put("changed", d.state == DocState.MODIFIED)
+                    put("copies", buildJsonArray { checkCopies.forEach { add(JsonPrimitive(it)) } })
+                }
+            }
+            "open.save" -> {
+                val d = docs[str("doc_id")] ?: err(ErrorCodes.NOT_FOUND)
+                saveFailure?.let { f ->
+                    saveFailure = null
+                    d.state = when (f.code) { ErrorCodes.CONFLICT -> DocState.CONFLICT; ErrorCodes.SAVE_UNCERTAIN -> DocState.UNCERTAIN; else -> DocState.SAVE_FAILED }
+                    throw FakeError(f)
+                }
+                if (d.state == DocState.CLEAN) err(ErrorCodes.INVALID_ARGUMENT, "reason" to "nothing_to_save")
+                savedResolutions += str("resolution")
+                d.state = DocState.CLEAN
+                localEdits -= d.id
+                buildJsonObject { put("doc", docJson(d)) }
+            }
+            "open.import" -> {
+                val d = docs[str("doc_id")] ?: err(ErrorCodes.NOT_FOUND)
+                d.state = DocState.IMPORTED
+                buildJsonObject { put("doc", docJson(d)) }
+            }
+            "open.recover" -> buildJsonObject { put("docs", buildJsonArray { }) }
+            "open.list" -> buildJsonObject { put("docs", buildJsonArray { docs.values.forEach { add(docJson(it)) } }) }
+            "open.mark_open", "open.release" -> {
+                val d = docs[str("doc_id")] ?: err(ErrorCodes.NOT_FOUND)
+                d.extOpen = cmd == "open.mark_open"
+                buildJsonObject { put("doc", docJson(d)) }
+            }
+            "open.export" -> buildJsonObject { put("exported", buildJsonArray { }) }
+            "open.discard" -> {
+                docs.remove(str("doc_id"))
+                JsonObject(emptyMap())
+            }
+            "cache.stats" -> buildJsonObject { put("used", docs.size * 100L); put("evictable", 0L); put("protected", docs.size * 100L); put("docs", docs.size); put("limit", 500L * 1024 * 1024) }
+            "cache.purge" -> buildJsonObject { put("freed", 0L) }
             else -> err(ErrorCodes.INVALID_ARGUMENT, "name" to cmd)
         }
+    }
+
+    // ------------------------------------------------------------------ opened documents (test double)
+
+    class FakeDoc(val id: String, val profileId: String, val remoteRef: String, val name: String, val size: Long) {
+        var state: String = DocState.CLEAN
+        var extOpen: Boolean = false
+    }
+
+    private val docs = mutableMapOf<String, FakeDoc>()
+    private var docCounter = 0
+
+    /** Doc ids whose local file counts as edited (the next `open.check` reports them modified). */
+    val localEdits = mutableSetOf<String>()
+
+    /** If set, the next `open.save` fails with this error and moves the doc to the matching state. */
+    var saveFailure: ErrInfo? = null
+
+    /** Ids of the documents opened so far (tests). */
+    fun localDocIds(): List<String> = docs.keys.toList()
+
+    /** Names of copies an app left next to the document, reported by `open.check` (tests). */
+    val checkCopies = mutableListOf<String>()
+
+    /** Resolutions of every successful `open.save` (for tests). */
+    val savedResolutions = mutableListOf<String>()
+
+    private fun docJson(d: FakeDoc): JsonObject = buildJsonObject {
+        put("id", d.id)
+        put("profile_id", d.profileId)
+        put("remote_ref", d.remoteRef)
+        put("name", d.name)
+        put("state", d.state)
+        put("size", d.size)
+        put("local_path", "/fake/cache/${d.id}/${d.name}")
+        put("needs_attention", d.state != DocState.CLEAN)
+        put("ext_open", d.extOpen)
     }
 
     // ------------------------------------------------------------------ connect + prompts

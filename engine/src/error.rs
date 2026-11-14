@@ -29,6 +29,14 @@ pub enum Code {
     SessionClosed,
     ProtocolDisabled,
     Cancelled,
+    /// The remote object changed since the version the caller pinned (conditional read/write refused).
+    VersionChanged,
+    /// The server ignored a byte-range request.
+    RangeUnsupported,
+    /// Remote object differs from what the caller based its edit on (or identity cannot be established).
+    Conflict,
+    /// A replacement may or may not have happened: nothing was cleaned up, reconcile before retrying.
+    SaveUncertain,
 }
 
 #[derive(Debug, Clone)]

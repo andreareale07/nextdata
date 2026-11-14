@@ -122,4 +122,99 @@ class EngineE2ETest {
             client.closeSession(s.session)
         }
     }
+
+    /** Open in place, edit the workspace copy, save: through the real engine DLL (docs/open-edit.md). */
+    @Test
+    fun openEditSaveRoundTrip() {
+        if (System.getenv("ND_ENGINE_E2E") != "1") {
+            println("EngineE2ETest.openEditSaveRoundTrip skipped (set ND_ENGINE_E2E=1)")
+            return
+        }
+        val dll = System.getenv("ND_ENGINE_DLL")?.let(::File)
+            ?: generateSequence(File(".").absoluteFile) { it.parentFile }.map { File(it, "engine/dist/windows-x64/nd_engine.dll") }.first { it.isFile }
+        System.load(dll.absolutePath)
+        val client = EngineClient(JniEngine())
+        val data = Files.createTempDirectory("nde2e-open").toFile()
+        val work = Files.createTempDirectory("nde2e-openwork").toFile()
+        runBlocking {
+            client.init(File(data, "data").absolutePath, Base64.encode(ByteArray(32) { (it * 5).toByte() }))
+            val p = client.profilesSave(Profile(name = "E2E", protocol = ProtocolId.FAKE, host = "demo", auth = "none"), null)
+            val s = client.connect(p.id)
+            val src = File(work, "note.txt").apply { writeText("first version") }
+            val remote = client.upload(s.session, listOf(src.absolutePath), s.homeRef, Collision.RENAME).single()
+
+            val opened = client.openPrepare(s.session, remote.ref)
+            assertEquals("clean", opened.doc.state)
+            val local = File(opened.doc.localPath)
+            assertEquals("first version", local.readText())
+            // untouched: nothing to upload
+            assertEquals(false, client.openCheck(opened.doc.id, stableMs = 0).changed)
+
+            // "another app" saves the file
+            local.writeText("second version, edited outside")
+            val chk = client.openCheck(opened.doc.id, stableMs = 0)
+            assertEquals(true, chk.changed)
+            assertEquals("modified", chk.doc.state)
+            val saved = client.openSave(s.session, opened.doc.id)
+            assertEquals("clean", saved.state)
+
+            // the server really has it (downloaded through the ordinary path)
+            val dl = File(work, "dl").apply { mkdirs() }
+            val got = client.download(s.session, listOf(remote.ref), dl.absolutePath, Collision.RENAME)
+            assertEquals("second version, edited outside", File(got.single()).readText())
+            // reopening is served from the cache, still clean
+            val again = client.openPrepare(s.session, remote.ref)
+            assertEquals(true, again.fromCache)
+            assertEquals(opened.doc.id, again.doc.id)
+            client.openRelease(opened.doc.id)
+            client.openDiscard(opened.doc.id)
+        }
+    }
+
+    /**
+     * Spike P6: cost of the bridge itself for ranged reads (JSON + base64 + JNI) with no network involved (fake
+     * provider). Reads a 24 MiB file in 256 KiB ranges, checks every byte and prints the throughput.
+     */
+    @Test
+    fun rangeReadThroughputThroughTheBridge() {
+        if (System.getenv("ND_ENGINE_E2E") != "1") {
+            println("EngineE2ETest.rangeReadThroughputThroughTheBridge skipped (set ND_ENGINE_E2E=1)")
+            return
+        }
+        val dll = System.getenv("ND_ENGINE_DLL")?.let(::File)
+            ?: generateSequence(File(".").absoluteFile) { it.parentFile }.map { File(it, "engine/dist/windows-x64/nd_engine.dll") }.first { it.isFile }
+        System.load(dll.absolutePath)
+        val client = EngineClient(JniEngine())
+        val data = Files.createTempDirectory("nde2e-rr").toFile()
+        val work = Files.createTempDirectory("nde2e-rrwork").toFile()
+        runBlocking {
+            client.init(File(data, "data").absolutePath, Base64.encode(ByteArray(32) { (it * 11).toByte() }))
+            val p = client.profilesSave(Profile(name = "E2E", protocol = ProtocolId.FAKE, host = "demo", auth = "none"), null)
+            val s = client.connect(p.id)
+            val size = 24 * 1024 * 1024
+            val bytes = ByteArray(size) { ((it * 31) xor (it ushr 9)).toByte() }
+            val src = File(work, "big.bin").apply { writeBytes(bytes) }
+            val remote = client.upload(s.session, listOf(src.absolutePath), s.homeRef, Collision.RENAME).single()
+            val h = client.readOpen(s.session, remote.ref)
+            assertEquals(size.toLong(), h.size)
+            val t0 = System.nanoTime()
+            var off = 0L
+            var ok = true
+            while (off < size) {
+                val chunk = client.readRange(h.handle, off, 256 * 1024)
+                if (chunk.isEmpty()) break
+                if (!chunk.contentEquals(bytes.copyOfRange(off.toInt(), off.toInt() + chunk.size))) ok = false
+                off += chunk.size
+            }
+            val secs = (System.nanoTime() - t0) / 1e9
+            client.readClose(h.handle)
+            val mbps = size / 1024.0 / 1024.0 / secs
+            println("P6 range-read throughput through the bridge: %.1f MiB/s (%d MiB in %.2f s, 256 KiB ranges)".format(mbps, size / 1024 / 1024, secs))
+            assertTrue(ok, "content mismatch")
+            assertEquals(size.toLong(), off)
+            // a 4K video is about 3 MiB/s: the bridge alone must never be the bottleneck (loose bound: the
+            // measure moves a lot with machine load, 19-39 MiB/s seen on the same machine)
+            assertTrue(mbps > 8.0, "bridge too slow: $mbps MiB/s")
+        }
+    }
 }

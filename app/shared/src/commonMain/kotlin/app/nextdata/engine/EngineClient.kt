@@ -1,6 +1,14 @@
 package app.nextdata.engine
 
+import app.nextdata.protocol.CacheStats
+import app.nextdata.protocol.CheckResult
 import app.nextdata.protocol.Codec
+import app.nextdata.protocol.OpenDoc
+import app.nextdata.protocol.OpenResult
+import app.nextdata.protocol.RecoveredDoc
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import app.nextdata.protocol.EngineEvent
 import app.nextdata.protocol.ConnectResult
 import app.nextdata.protocol.Entry
@@ -200,6 +208,103 @@ class EngineClient(val engine: Engine) {
             put("ref", ref)
         }),
     )
+
+    // ------------------------------------------------------------------ open / edit (docs/open-edit.md)
+
+    private fun doc(o: JsonObject): OpenDoc = Codec.json.decodeFromJsonElement(OpenDoc.serializer(), o)
+    private fun JsonObject.flag(k: String) = (this[k] as? JsonPrimitive)?.booleanOrNull ?: false
+
+    /** A pinned random-access reader of a remote file (docs/protocol.md `read.*`). */
+    class ReadHandle(val handle: String, val size: Long?)
+
+    suspend fun readOpen(session: String, ref: String): ReadHandle {
+        val r = call("read.open", buildJsonObject { put("session", session); put("ref", ref) })
+        return ReadHandle(r["handle"]!!.jsonPrimitive.content, (r["size"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull())
+    }
+
+    @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
+    suspend fun readRange(handle: String, offset: Long, length: Int): ByteArray {
+        val r = call("read.range", buildJsonObject { put("handle", handle); put("offset", offset); put("length", length) })
+        return kotlin.io.encoding.Base64.decode(r["data_b64"]!!.jsonPrimitive.content)
+    }
+
+    suspend fun readClose(handle: String) {
+        call("read.close", buildJsonObject { put("handle", handle) })
+    }
+
+    suspend fun openPrepare(session: String, ref: String, cacheLimit: Long? = null, onProgress: ((ProgressInfo) -> Unit)? = null): OpenResult {
+        val r = call(
+            "open.prepare",
+            buildJsonObject {
+                put("session", session)
+                put("ref", ref)
+                if (cacheLimit != null) put("cache_limit", cacheLimit)
+            },
+            onProgress,
+        )
+        return OpenResult(doc(r["doc"]!!.jsonObject), r.flag("from_cache"), r.flag("remote_changed"), r.flag("over_quota"))
+    }
+
+    suspend fun openCheck(docId: String, stableMs: Long = 1000, acceptEmpty: Boolean = false): CheckResult {
+        val r = call("open.check", buildJsonObject {
+            put("doc_id", docId)
+            put("stable_ms", stableMs)
+            put("accept_empty", acceptEmpty)
+        })
+        return CheckResult(
+            doc(r["doc"]!!.jsonObject), r.flag("changed"),
+            (r["copies"] as? JsonArray)?.map { it.jsonPrimitive.content } ?: emptyList(),
+            r.flag("unstable"), r.flag("locked"), r.flag("missing"), (r["suspicious"] as? JsonPrimitive)?.contentOrNull,
+        )
+    }
+
+    suspend fun openSave(
+        session: String,
+        docId: String,
+        resolution: String = "normal",
+        confirmUnverified: Boolean = false,
+        recoveryDir: String? = null,
+        onProgress: ((ProgressInfo) -> Unit)? = null,
+    ): OpenDoc = doc(
+        call(
+            "open.save",
+            buildJsonObject {
+                put("session", session)
+                put("doc_id", docId)
+                put("resolution", resolution)
+                if (confirmUnverified) put("confirm_unverified", true)
+                if (recoveryDir != null) put("recovery_dir", recoveryDir)
+            },
+            onProgress,
+        )["doc"]!!.jsonObject,
+    )
+
+    suspend fun openImport(docId: String, localPath: String): OpenDoc =
+        doc(call("open.import", buildJsonObject { put("doc_id", docId); put("local_path", localPath) })["doc"]!!.jsonObject)
+
+    suspend fun openRecover(session: String): List<RecoveredDoc> =
+        (call("open.recover", buildJsonObject { put("session", session) })["docs"] as? JsonArray).orEmpty().map {
+            val o = it.jsonObject
+            RecoveredDoc(o["doc_id"]!!.jsonPrimitive.content, o["verdict"]!!.jsonPrimitive.content, o["state"]!!.jsonPrimitive.content)
+        }
+
+    suspend fun openList(profileId: String? = null): List<OpenDoc> =
+        (call("open.list", buildJsonObject { if (profileId != null) put("profile_id", profileId) })["docs"] as? JsonArray).orEmpty().map { doc(it.jsonObject) }
+
+    suspend fun openMarkOpen(docId: String): OpenDoc = doc(call("open.mark_open", buildJsonObject { put("doc_id", docId) })["doc"]!!.jsonObject)
+
+    suspend fun openRelease(docId: String): OpenDoc = doc(call("open.release", buildJsonObject { put("doc_id", docId) })["doc"]!!.jsonObject)
+
+    suspend fun openExport(docId: String, destDir: String): List<String> =
+        (call("open.export", buildJsonObject { put("doc_id", docId); put("dest_dir", destDir) })["exported"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }
+
+    suspend fun openDiscard(docId: String) {
+        call("open.discard", buildJsonObject { put("doc_id", docId); put("confirm", true) })
+    }
+
+    suspend fun cacheStats(): CacheStats = Codec.json.decodeFromJsonElement(CacheStats.serializer(), call("cache.stats"))
+
+    suspend fun cachePurge(): Long = (call("cache.purge")["freed"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: 0L
 
     private fun favoritesResult(data: JsonObject): List<Favorite> =
         Codec.json.decodeFromJsonElement(ListSerializer(Favorite.serializer()), data["favorites"] ?: JsonArray(emptyList()))

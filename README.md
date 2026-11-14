@@ -68,6 +68,25 @@ una perdita di rete.
   </tr>
 </table>
 
+### Apri, guarda e modifica senza scaricare
+
+Un tocco (o un doppio clic) apre il file così com'è sul server: niente più scarica → modifica → ricarica.
+
+<table>
+  <tr>
+    <td align="center"><img src="app/docs-screens/phone-open-image.png" alt="Immagine aperta in NextData" width="200"><br><sub>Immagini, con zoom e scorrimento</sub></td>
+    <td align="center"><img src="app/docs-screens/phone-open-text-saved.png" alt="Editor di testo, salvato e verificato" width="200"><br><sub>Testo modificabile, «Salvato e verificato»</sub></td>
+    <td align="center"><img src="app/docs-screens/phone-open-pdf.png" alt="PDF aperto in NextData" width="200"><br><sub>PDF (Android)</sub></td>
+    <td align="center"><img src="app/docs-screens/phone-open-audio.png" alt="Audio riprodotto dal server" width="200"><br><sub>Audio e video dal server, senza copiarli (Android)</sub></td>
+    <td align="center"><img src="app/docs-screens/phone-settings-pending.png" alt="Impostazioni: modifiche da salvare" width="200"><br><sub>Modifiche da salvare e salvataggio delle altre app</sub></td>
+  </tr>
+</table>
+
+- **Visualizzatori interni**: immagini, testo/codice/CSV/JSON (con editor), PDF e audio/video su Android. Su Windows PDF e video si aprono con l'app di sistema.
+- **Altri formati**: si aprono con l'app che preferisci; NextData controlla il contenuto del file e, se è davvero cambiato, lo carica sul server e **verifica** che sia arrivato prima di dire «salvato». Se l'app salva altrove, puoi importare la versione modificata.
+- **Niente perdite**: se il file sul server è cambiato nel frattempo scegli tra salvare come copia, sovrascrivere (con doppia conferma) o annullare. Le modifiche non ancora salvate restano al sicuro sul dispositivo e le ritrovi in *Impostazioni → Modifiche da salvare*, anche dopo un arresto improvviso.
+- **Onestà sui limiti**: il salvataggio automatico dipende dall'app esterna; dove non è garantibile NextData lo dice. Stato dei collaudi, rischi e cose non ancora verificate (SMB reale, video, app esterne reali): [docs/open-edit-compat.md](docs/open-edit-compat.md).
+
 ## Funzionalità
 
 **Un client, tre protocolli**

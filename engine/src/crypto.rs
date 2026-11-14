@@ -90,6 +90,25 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
     o
 }
 
+/// Incremental SHA-256 (hex digest at the end): fingerprints files without loading them.
+pub struct Sha256Stream(ring::digest::Context);
+impl Sha256Stream {
+    pub fn new() -> Self {
+        Sha256Stream(ring::digest::Context::new(&ring::digest::SHA256))
+    }
+    pub fn update(&mut self, d: &[u8]) {
+        self.0.update(d);
+    }
+    pub fn finish_hex(self) -> String {
+        self.0.finish().as_ref().iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+impl Default for Sha256Stream {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

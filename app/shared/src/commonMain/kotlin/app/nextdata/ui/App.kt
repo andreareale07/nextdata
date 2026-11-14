@@ -118,6 +118,7 @@ fun NextDataApp(controller: AppController, modifier: Modifier = Modifier) {
                     is BootState.Ready -> {
                         Shell(controller)
                         ConnectionDialogs(controller)
+                        ViewerHost(controller)
                         val about by controller.aboutVisible.collectAsState()
                         if (about) AboutDialog(controller.env.appVersion, b.info.version.ifEmpty { null }, onDismiss = { controller.showAbout(false) })
                     }

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import app.nextdata.platform.DownloadTarget
@@ -171,6 +172,120 @@ class AndroidFiles(private val activity: ComponentActivity) : PlatformFiles {
                 out.toByteArray()
             }
         }
+    }
+
+    // ---------------------------------------------------------------- opened documents (workspace copies)
+
+    override suspend fun readFile(path: String, maxBytes: Long): ByteArray? = withContext(Dispatchers.IO) {
+        val f = File(path)
+        if (!f.isFile || f.length() > maxBytes) null else runCatching { f.readBytes() }.getOrNull()
+    }
+
+    override suspend fun writeFile(path: String, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        runCatching { File(path).writeBytes(bytes) }.isSuccess
+    }
+
+    override suspend fun listLocal(dir: String): List<app.nextdata.platform.LocalStat>? = withContext(Dispatchers.IO) {
+        File(dir).listFiles()?.filter { it.isFile }?.map { app.nextdata.platform.LocalStat(it.name, it.length(), it.lastModified()) }?.sortedBy { it.name }
+    }
+
+    /** Down-sampled decode (never more than about [maxPixels] in memory) with the EXIF orientation applied. */
+    override suspend fun decodeImage(path: String, maxPixels: Int): androidx.compose.ui.graphics.ImageBitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(path, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            var sample = 1
+            while ((bounds.outWidth / sample).toLong() * (bounds.outHeight / sample) > maxPixels) sample *= 2
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+            var bmp = android.graphics.BitmapFactory.decodeFile(path, opts) ?: return@runCatching null
+            val deg = when (android.media.ExifInterface(path).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+            if (deg != 0f) {
+                val m = android.graphics.Matrix().apply { postRotate(deg) }
+                bmp = android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            }
+            bmp.asImageBitmap()
+        }.getOrNull()
+    }
+
+    private val pdfLock = Any()
+
+    /** Framework PdfRenderer: no extra library. Password-protected or damaged files give null (opened elsewhere). */
+    override suspend fun pdfPageCount(path: String): Int? = withContext(Dispatchers.IO) {
+        runCatching {
+            android.os.ParcelFileDescriptor.open(File(path), android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                android.graphics.pdf.PdfRenderer(fd).use { r -> r.pageCount.takeIf { it > 0 } }
+            }
+        }.getOrNull()
+    }
+
+    override suspend fun renderPdfPage(path: String, index: Int, widthPx: Int): androidx.compose.ui.graphics.ImageBitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            synchronized(pdfLock) {
+                android.os.ParcelFileDescriptor.open(File(path), android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    android.graphics.pdf.PdfRenderer(fd).use { r ->
+                        r.openPage(index).use { page ->
+                            val w = widthPx.coerceIn(100, 2400)
+                            val h = (w.toLong() * page.height / page.width).toInt().coerceIn(1, 6000)
+                            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                            bmp.eraseColor(android.graphics.Color.WHITE)
+                            page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            bmp.asImageBitmap()
+                        }
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    /** The user picks the file another app exported; it is copied under its real name into a private import folder. */
+    override suspend fun pickFileToImport(): String? {
+        val uri: Uri = launch { openOne.launch(arrayOf("*/*")) } ?: return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                File(ctx.cacheDir, "import").deleteRecursively() // earlier imports were already taken over by the engine
+                copyDocument(uri, newTemp("import")).absolutePath
+            }.getOrNull()
+        }
+    }
+
+    /**
+     * Hands the workspace copy to another app through the FileProvider. Edit first tries ACTION_EDIT (few apps
+     * handle it), then ACTION_VIEW with the same grants. Granting write access does NOT guarantee that the other
+     * app writes back to this file: NextData watches the file and offers "Import modified version" otherwise.
+     */
+    override suspend fun openExternal(path: String, edit: Boolean): Boolean = withContext(Dispatchers.Main) {
+        val file = File(path)
+        if (!file.isFile) return@withContext false
+        val uri = try {
+            androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", file)
+        } catch (e: IllegalArgumentException) {
+            return@withContext false // outside the shared workspace folder
+        }
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or (if (edit) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        fun intent(action: String) = Intent(action).setDataAndType(uri, mime).addFlags(flags).apply {
+            clipData = android.content.ClipData.newRawUri(file.name, uri) // lets the grant reach the app picked in the chooser
+        }
+        val attempts = if (edit) listOf(Intent.ACTION_EDIT, Intent.ACTION_VIEW) else listOf(Intent.ACTION_VIEW)
+        for (action in attempts) {
+            val i = intent(action)
+            // only offer the chooser when some app really handles it (an empty chooser would say "no apps" and stop us)
+            val handlers = try { activity.packageManager.queryIntentActivities(i, 0) } catch (e: Exception) { emptyList() }
+            if (handlers.isEmpty()) continue
+            try {
+                activity.startActivity(Intent.createChooser(i, file.name))
+                return@withContext true
+            } catch (e: Exception) {
+                android.util.Log.w("NextData", "cannot start $action", e)
+            }
+        }
+        false
     }
 
     // ---------------------------------------------------------------- helpers

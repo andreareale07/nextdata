@@ -70,6 +70,7 @@ dependencies {
     implementation(project(":shared"))
     implementation(compose.foundation)
     implementation(compose.ui)
+    implementation(compose.material3)
     implementation(project(":engine-binding"))
     implementation(libs.androidx.activity.compose)
     implementation(libs.kotlinx.coroutines.android)

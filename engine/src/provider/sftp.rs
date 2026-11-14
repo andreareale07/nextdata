@@ -285,7 +285,11 @@ impl Provider for SftpProvider {
     }
 
     async fn put(&self, path: &str, mut src: Reader, _size: u64, overwrite: bool, pr: &Progress) -> Result<()> {
-        if !overwrite && super::exists(self, path).await? {
+        if overwrite {
+            // never remove the original first: replacement goes through `Provider::replace` (backup + rollback)
+            return Err(NdError::new(Code::Unsupported).with("path", path).detail("overwrite: use replace"));
+        }
+        if super::exists(self, path).await? {
             return Err(NdError::new(Code::AlreadyExists).with("path", path));
         }
         let part = format!("{path}.nd-part");
@@ -314,9 +318,7 @@ impl Provider for SftpProvider {
             let _ = self.sftp.remove_file(part.clone()).await;
             return Err(e);
         }
-        if overwrite {
-            let _ = self.sftp.remove_file(path).await;
-        } else if super::exists(self, path).await? {
+        if super::exists(self, path).await? {
             let _ = self.sftp.remove_file(part.clone()).await;
             return Err(NdError::new(Code::AlreadyExists).with("path", path));
         }

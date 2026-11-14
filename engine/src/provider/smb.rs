@@ -421,6 +421,10 @@ impl Provider for SmbProvider {
         Ok(Box::new(rx))
     }
 
+    async fn replace(&self, ctx: &crate::replace::ReplaceCtx, src: Reader, log: &mut dyn crate::journal::ReplaceLog, pr: &Progress) -> Result<crate::replace::Replaced> {
+        super::replace_via_put(self, ctx, src, true, log, pr).await
+    }
+
     async fn put(&self, path: &str, mut src: Reader, _size: u64, overwrite: bool, pr: &Progress) -> Result<()> {
         if !overwrite && super::exists(self, path).await? {
             return Err(NdError::new(Code::AlreadyExists).with("path", path));
