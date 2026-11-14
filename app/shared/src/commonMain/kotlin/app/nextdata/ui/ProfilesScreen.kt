@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,14 +40,15 @@ import org.jetbrains.compose.resources.stringResource
 
 /** Hoisted state of the profile create/edit/delete dialogs. */
 @Stable
-class ProfileDialogs {
+class ProfileDialogs(private val openInBody: ((Profile?) -> Unit)? = null) {
     var editor by mutableStateOf<EditorRequest?>(null)
     var deleting by mutableStateOf<Profile?>(null)
 
     class EditorRequest(val profile: Profile?)
 
-    fun create() { editor = EditorRequest(null) }
-    fun edit(p: Profile) { editor = EditorRequest(p) }
+    /** Wide layouts open the editor in the content area ([openInBody]); otherwise it is a dialog. */
+    fun create() { if (openInBody != null) openInBody.invoke(null) else editor = EditorRequest(null) }
+    fun edit(p: Profile) { if (openInBody != null) openInBody.invoke(p) else editor = EditorRequest(p) }
 }
 
 @Composable
@@ -77,46 +79,24 @@ fun ProfileDialogsHost(controller: AppController, dialogs: ProfileDialogs) {
     }
 }
 
-/** Phone: full-screen list of profiles with a collapsing top bar and an extended FAB. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Phone: the list of profiles under a plain "NextData" title; a plain "+" sits at the top end, level with the title. */
 @Composable
 fun ProfilesScreen(controller: AppController) {
-    val dialogs = remember { ProfileDialogs() }
-    val transfers by controller.transfers.items.collectAsState()
-    val active = transfers.count { it.status.isActive }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val dialogs = remember { ProfileDialogs(openInBody = controller::openProfileEditor) }
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
-            MediumTopAppBar(
-                title = { Text(stringResource(Res.string.app_name)) },
-                scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.mediumTopAppBarColors(containerColor = MaterialTheme.colorScheme.surface, scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer),
-                actions = {
-                    IconButton(onClick = { controller.navigate(Screen.Transfers) }) {
-                        BadgedBox(badge = { if (active > 0) Badge { Text("$active") } }) {
-                            Icon(Icons.AutoMirrored.Outlined.CompareArrows, stringResource(Res.string.nav_transfers))
-                        }
-                    }
-                    IconButton(onClick = { controller.navigate(Screen.Settings) }) {
-                        Icon(Icons.Outlined.Settings, stringResource(Res.string.nav_settings))
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = dialogs::create,
-                icon = { Icon(Icons.Outlined.Add, null) },
-                text = { Text(stringResource(Res.string.profile_add)) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            )
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(Res.string.app_name), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).semantics { heading() })
+                IconButton(onClick = dialogs::create) { Icon(Icons.Outlined.Add, stringResource(Res.string.profile_add)) }
+            }
         },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
-            ProfilesList(controller, dialogs, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 96.dp))
+            ProfilesList(controller, dialogs, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp))
         }
     }
     ProfileDialogsHost(controller, dialogs)
@@ -125,7 +105,7 @@ fun ProfilesScreen(controller: AppController) {
 /** Navigation pane (desktop/tablet): profiles, then Favorites and Recent of the open profile, then Transfers/Settings. */
 @Composable
 fun ProfilesPane(controller: AppController, modifier: Modifier = Modifier) {
-    val dialogs = remember { ProfileDialogs() }
+    val dialogs = remember { ProfileDialogs(openInBody = controller::openProfileEditor) }
     val transfers by controller.transfers.items.collectAsState()
     val browser by controller.browser.collectAsState()
     val settings by controller.settings.state.collectAsState()

@@ -75,9 +75,23 @@ private fun ErrInfo.displayName(): String? = param("name")?.takeIf { it.isNotBla
 /** Localized, user-facing text for an engine error. Only `code` + `params.name` are used. */
 @Composable
 fun errorText(err: ErrInfo): String {
+    smbErrorRes(err)?.let { return stringResource(it) }
     val name = err.displayName()
     val named = namedErrorStringRes(err.code)
     return if (named != null && name != null) stringResource(named, name) else stringResource(errorStringRes(err.code))
+}
+
+/** SMB-specific wording for policy refusals and encryption mismatches (engine `params.rule` / `params.hint`); null if not SMB. */
+fun smbErrorRes(err: ErrInfo): StringResource? = when {
+    err.code == ErrorCodes.POLICY_DENIED -> when (err.param("rule")) {
+        "smb_public_host" -> Res.string.err_smb_public_host
+        "smb_dialect" -> Res.string.err_smb_dialect
+        "smb_negotiation" -> Res.string.err_smb_negotiation
+        "smb_name" -> Res.string.err_smb_name
+        else -> null
+    }
+    err.code == ErrorCodes.PERMISSION_DENIED && err.param("hint") == "server_requires_encryption" -> Res.string.err_smb_encryption
+    else -> null
 }
 
 /** Reason shown for a protocol the engine reports as disabled (`protocols[].reason_code`). */

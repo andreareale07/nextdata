@@ -63,6 +63,13 @@ pub struct Profile {
     pub tls: bool,
     #[serde(default)]
     pub s3: Option<S3Cfg>,
+    /// SMB: share name (without slashes).
+    #[serde(default)]
+    pub share: String,
+    /// SMB: "strict" (default: encryption required) or "relaxed" (explicit per-profile opt-in:
+    /// encryption not imposed; SMB 3.1.1 and signing stay mandatory). See docs/adr/0001.
+    #[serde(default)]
+    pub smb_mode: String,
     #[serde(default)]
     pub has_secret: bool,
     #[serde(default)]

@@ -15,3 +15,6 @@ __pycache__/
 infra/test-env/data/
 infra/test-env/.venv/
 *.log
+
+# dati di prova locali per il collaudo manuale
+infra/test-env/manual-data/

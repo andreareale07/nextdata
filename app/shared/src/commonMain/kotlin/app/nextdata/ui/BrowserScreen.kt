@@ -220,35 +220,25 @@ fun BrowserScreen(
         }
     }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
     if (compact) {
-        val fabExpanded by remember {
-            derivedStateOf {
-                (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 40) &&
-                    (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset < 40)
-            }
-        }
         Box(Modifier.fillMaxSize().then(keyModifier)) {
             Scaffold(
-                modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
                 containerColor = MaterialTheme.colorScheme.surface,
                 snackbarHost = { SnackbarHost(snackbar) },
                 topBar = {
-                    if (state.selectionMode) SelectionTopBar(state.selection.size, selected, vm, visible, onDelete = { deleting = it }, onRename = { renaming = it })
-                    else CompactTopBar(controller, state, vm, settings.showHidden, viewMode, transfers.count { it.status.isActive }, scrollBehavior, onSearch = { filterOpen = !filterOpen; if (!filterOpen) vm.setFilter("") }, onSecurity = { securityOpen = true })
+                    CompactHeader(
+                        if (state.canGoUp) state.breadcrumbs.lastOrNull()?.name ?: vm.profile.name else vm.profile.name,
+                        if (state.selectionMode) state.selection.size else 0,
+                    )
                 },
-                floatingActionButton = {
-                    if (!state.selectionMode) {
-                        ExtendedFloatingActionButton(
-                            onClick = { fabSheet = true },
-                            expanded = fabExpanded,
-                            icon = { Icon(Icons.Outlined.Add, if (fabExpanded) null else stringResource(Res.string.action_add)) },
-                            text = { Text(stringResource(Res.string.action_add)) },
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    }
+                bottomBar = {
+                    if (state.selectionMode) SelectionBottomBar(selected, vm, visible, onDelete = { deleting = it }, onRename = { renaming = it })
+                    else CompactBottomBar(
+                        controller, state, vm, viewMode, transfers.count { it.status.isActive },
+                        onSearch = { filterOpen = !filterOpen; if (!filterOpen) vm.setFilter("") },
+                        onSecurity = { securityOpen = true },
+                        onAdd = { fabSheet = true },
+                    )
                 },
             ) { pad ->
                 Column(Modifier.padding(pad).fillMaxSize()) {

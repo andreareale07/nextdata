@@ -416,7 +416,7 @@
     <string name="protocol_blurb_sftp">Secure shell file transfer. Servers, NAS, Linux hosts.</string>
     <string name="protocol_blurb_webdav">Nextcloud, ownCloud and other WebDAV services.</string>
     <string name="protocol_blurb_s3">Amazon S3 and compatible object storage.</string>
-    <string name="protocol_blurb_smb">Windows network shares.</string>
+    <string name="protocol_blurb_smb">Windows and Samba network shares (NAS, OpenMediaVault).</string>
     <string name="protocol_blurb_fake">Demo data kept in memory, for testing.</string>
     <string name="wizard_step_protocol">Protocol</string>
     <string name="wizard_step_server">Server</string>
@@ -463,4 +463,22 @@
     <string name="theme_system">Follow the system</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
+    <string name="field_s3_preset">S3 setup</string>
+    <string name="s3_preset_amazon">Amazon S3</string>
+    <string name="s3_preset_custom">Own server / MinIO</string>
+    <string name="action_enable_path_style_retry">Turn on path-style and retry</string>
+    <string name="field_smb_share">Share</string>
+    <string name="hint_smb_share">The shared folder name on the server, for example documents.</string>
+    <string name="issue_share_invalid">A share name cannot contain slashes.</string>
+    <string name="field_smb_security">Security</string>
+    <string name="smb_mode_strict">Secure (recommended)</string>
+    <string name="smb_mode_strict_desc">SMB 3.1.1, signed and encrypted.</string>
+    <string name="smb_mode_relaxed">Compatible</string>
+    <string name="smb_mode_relaxed_desc">SMB 3.1.1 signed, without encryption.</string>
+    <string name="smb_relaxed_warning">Files travel unencrypted on the network. Use this only on a network you trust. Signing still prevents tampering.</string>
+    <string name="err_smb_public_host">SMB is only allowed on private networks.</string>
+    <string name="err_smb_dialect">The server does not support SMB 3.1.1. Update the server settings.</string>
+    <string name="err_smb_negotiation">The server and NextData could not agree on a secure connection. Check the security mode.</string>
+    <string name="err_smb_name">This name is not allowed on a Windows share.</string>
+    <string name="err_smb_encryption">The server requires encryption. Check the security mode and the server settings.</string>
 </resources>

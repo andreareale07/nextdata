@@ -9,6 +9,8 @@ use tokio_util::sync::CancellationToken;
 
 pub mod fake;
 pub mod s3;
+#[cfg(feature = "smb")]
+pub mod smb;
 pub mod sftp;
 pub mod tls;
 pub mod webdav;

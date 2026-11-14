@@ -25,6 +25,12 @@ object AuthKind {
     const val NONE = "none"
 }
 
+/** SMB security mode of a profile (docs/adr/0001): strict = signed and encrypted, relaxed = signed only. */
+object SmbMode {
+    const val STRICT = "strict"
+    const val RELAXED = "relaxed"
+}
+
 object EntryKind {
     const val FILE = "file"
     const val DIR = "dir"
@@ -68,6 +74,9 @@ data class Profile(
     val s3: S3Config? = null,
     @SerialName("has_secret") val hasSecret: Boolean = false,
     val color: String? = null,
+    /** SMB share name. */
+    val share: String = "",
+    @SerialName("smb_mode") val smbMode: String = "",
 )
 
 /** Secrets travel to the engine only inside `profiles.save` and are never read back. */
