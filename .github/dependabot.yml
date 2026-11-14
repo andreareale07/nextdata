@@ -7,6 +7,10 @@ updates:
     groups:
       rust-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Il bridge JNI usa l'API 0.21: la 0.22 non compila senza migrazione dedicata.
+      - dependency-name: jni
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: gradle
     directory: /app
     schedule:
@@ -15,3 +19,6 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
