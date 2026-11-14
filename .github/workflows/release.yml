@@ -108,12 +108,12 @@ jobs:
     runs-on: windows-2022 # include WiX 3, necessario a jpackage per EXE/MSI
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: engine-windows-x64
           path: engine/dist/windows-x64
@@ -146,7 +146,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -154,7 +154,7 @@ jobs:
         with:
           packages: "platforms;android-36 build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: engine-android
           path: engine/dist/android
@@ -224,7 +224,7 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: "*-packages"
           merge-multiple: true
