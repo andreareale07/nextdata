@@ -521,10 +521,6 @@
     <string name="viewer_not_text_binary">This is not a text file: it cannot be edited here.</string>
     <string name="viewer_not_text_encoding">Unrecognized text encoding: shown read-only so it cannot be damaged.</string>
     <string name="viewer_not_text_eol">Mixed line endings: shown read-only so it cannot be damaged.</string>
-    <string name="msg_external_saved">%1$s was saved by the other app and uploaded (verified).</string>
-    <string name="msg_external_changed">%1$s was changed by the other app.</string>
-    <string name="msg_copy_detected">The app made a copy: %1$s. It is not uploaded unless you use it.</string>
-    <string name="msg_no_change">No change detected in %1$s. If you saved it somewhere else, import that version.</string>
     <string name="action_use_copy">Use this copy</string>
     <string name="action_import_version">Import modified version</string>
     <string name="settings_autosave_external">Upload changes made in other apps</string>
@@ -542,4 +538,10 @@
     <string name="pending_discard_title">Delete the local copy?</string>
     <string name="pending_discard_text">The changes only exist on this device. They will be lost.</string>
     <string name="pending_connect_hint">Connect to this server to save.</string>
+    <string name="msg_nochange_title">No change detected</string>
+    <string name="msg_nochange_body">If you saved it somewhere else, import that version.</string>
+    <string name="msg_copy_title">The app made a copy</string>
+    <string name="msg_copy_body">It is not uploaded unless you use it.</string>
+    <string name="msg_external_saved_title">Saved by the other app and uploaded</string>
+    <string name="msg_external_changed_title">Changed by the other app</string>
 </resources>

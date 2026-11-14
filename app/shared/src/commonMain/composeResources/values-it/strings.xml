@@ -488,7 +488,7 @@
     <string name="opening_file">Apertura di %1$s…</string>
     <string name="viewer_saved_verified">Salvato e verificato sul server.</string>
     <string name="viewer_saved_size">Salvato sul server (dimensione verificata).</string>
-    <string name="viewer_saved_copy">Salvato come copia accanto all\'originale.</string>
+    <string name="viewer_saved_copy">Salvato come copia accanto all’originale.</string>
     <string name="viewer_remote_changed_kept">Il file è cambiato sul server. Le tue modifiche locali sono state conservate.</string>
     <string name="viewer_nothing_to_save">Niente da salvare: il contenuto è uguale a quello sul server.</string>
     <string name="viewer_local_not_ready">Il file su questo dispositivo è vuoto o in uso. Non è stato caricato nulla.</string>
@@ -511,20 +511,16 @@
     <string name="doc_state_orphaned">Connessione rimossa. Lavoro conservato su questo dispositivo.</string>
     <string name="viewer_prev">Precedente</string>
     <string name="viewer_next">Successivo</string>
-    <string name="viewer_open_external">Apri con un\'altra app</string>
+    <string name="viewer_open_external">Apri con un’altra app</string>
     <string name="viewer_discard_title">Modifiche non salvate</string>
     <string name="viewer_discard_text">Salvale sul server, oppure tieni una bozza su questo dispositivo e salva dopo.</string>
     <string name="viewer_save_now">Salva ora</string>
     <string name="viewer_keep_draft">Tieni la bozza e chiudi</string>
-    <string name="viewer_unsupported_body">Questo file non può essere mostrato qui. Aprilo con un\'altra app o scaricalo.</string>
+    <string name="viewer_unsupported_body">Questo file non può essere mostrato qui. Aprilo con un’altra app o scaricalo.</string>
     <string name="viewer_image_failed">Impossibile mostrare questo file. Potrebbe essere danneggiato o in un formato non supportato.</string>
     <string name="viewer_not_text_binary">Non è un file di testo: non si può modificare qui.</string>
     <string name="viewer_not_text_encoding">Codifica del testo non riconosciuta: mostrato in sola lettura per non danneggiarlo.</string>
     <string name="viewer_not_text_eol">Fine riga miste: mostrato in sola lettura per non danneggiarlo.</string>
-    <string name="msg_external_saved">%1$s è stato salvato dall\'altra app e caricato (verificato).</string>
-    <string name="msg_external_changed">%1$s è stato modificato dall\'altra app.</string>
-    <string name="msg_copy_detected">L\'app ha creato una copia: %1$s. Non viene caricata se non la usi.</string>
-    <string name="msg_no_change">Nessuna modifica rilevata in %1$s. Se l\'hai salvato altrove, importa quella versione.</string>
     <string name="action_use_copy">Usa questa copia</string>
     <string name="action_import_version">Importa versione modificata</string>
     <string name="settings_autosave_external">Carica le modifiche fatte in altre app</string>
@@ -542,4 +538,10 @@
     <string name="pending_discard_title">Eliminare la copia locale?</string>
     <string name="pending_discard_text">Le modifiche esistono solo su questo dispositivo. Andranno perse.</string>
     <string name="pending_connect_hint">Connettiti a questo server per salvare.</string>
+    <string name="msg_nochange_title">Nessuna modifica rilevata</string>
+    <string name="msg_nochange_body">Se l’hai salvato in un altro posto, importa quella versione.</string>
+    <string name="msg_copy_title">L’app ha creato una copia</string>
+    <string name="msg_copy_body">Non viene caricata se non la usi.</string>
+    <string name="msg_external_saved_title">Salvato dall’altra app e caricato</string>
+    <string name="msg_external_changed_title">Modificato dall’altra app</string>
 </resources>

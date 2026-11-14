@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -21,9 +22,19 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.AlertDialog
@@ -123,6 +134,18 @@ fun ViewerHost(controller: AppController) {
     conflict?.let { _ -> ConflictDialog(opener) }
 }
 
+/** What a message card shows: icon, title, optional file name and explanation, optional action (icon button). */
+private class CardSpec(
+    val icon: ImageVector,
+    val title: String,
+    val name: String? = null,
+    val body: String? = null,
+    val actionIcon: ImageVector? = null,
+    val actionLabel: String? = null,
+    val onAction: () -> Unit = {},
+    val error: Boolean = false,
+)
+
 @Composable
 private fun OpenMessageBar(m: OpenMessage, opener: OpenManager) {
     val hasAction = m is OpenMessage.ExternalChanged || m is OpenMessage.CopyDetected || m is OpenMessage.NoChangeDetected || m is OpenMessage.PendingFound
@@ -130,36 +153,67 @@ private fun OpenMessageBar(m: OpenMessage, opener: OpenManager) {
         delay(if (m is OpenMessage.Error) 8000 else if (hasAction) 20000 else 3500)
         opener.consumeMessage()
     }
-    val text = when (m) {
-        is OpenMessage.Error -> errorText(m.error)
-        is OpenMessage.Saved -> stringResource(if (m.content) Res.string.viewer_saved_verified else Res.string.viewer_saved_size)
-        OpenMessage.SavedAsCopy -> stringResource(Res.string.viewer_saved_copy)
-        OpenMessage.RemoteChangedKept -> stringResource(Res.string.viewer_remote_changed_kept)
-        OpenMessage.NothingToSave -> stringResource(Res.string.viewer_nothing_to_save)
-        OpenMessage.LocalNotReady -> stringResource(Res.string.viewer_local_not_ready)
-        OpenMessage.NoExternalApp -> stringResource(Res.string.viewer_no_external_app)
-        is OpenMessage.ExternalSaved -> stringResource(Res.string.msg_external_saved, m.name)
-        is OpenMessage.ExternalChanged -> stringResource(Res.string.msg_external_changed, m.name)
-        is OpenMessage.CopyDetected -> stringResource(Res.string.msg_copy_detected, m.names.first())
-        is OpenMessage.NoChangeDetected -> stringResource(Res.string.msg_no_change, m.name)
-        is OpenMessage.PendingFound -> stringResource(Res.string.msg_pending_found, m.count)
+    val spec = when (m) {
+        is OpenMessage.Error -> CardSpec(Icons.Outlined.ErrorOutline, errorText(m.error), error = true)
+        is OpenMessage.Saved -> CardSpec(Icons.Outlined.CheckCircle, stringResource(if (m.content) Res.string.viewer_saved_verified else Res.string.viewer_saved_size))
+        OpenMessage.SavedAsCopy -> CardSpec(Icons.Outlined.CheckCircle, stringResource(Res.string.viewer_saved_copy))
+        OpenMessage.RemoteChangedKept -> CardSpec(Icons.Outlined.Info, stringResource(Res.string.viewer_remote_changed_kept))
+        OpenMessage.NothingToSave -> CardSpec(Icons.Outlined.Info, stringResource(Res.string.viewer_nothing_to_save))
+        OpenMessage.LocalNotReady -> CardSpec(Icons.Outlined.Info, stringResource(Res.string.viewer_local_not_ready))
+        OpenMessage.NoExternalApp -> CardSpec(Icons.Outlined.Info, stringResource(Res.string.viewer_no_external_app))
+        is OpenMessage.ExternalSaved -> CardSpec(Icons.Outlined.CheckCircle, stringResource(Res.string.msg_external_saved_title), name = m.name)
+        is OpenMessage.ExternalChanged -> CardSpec(
+            Icons.Outlined.Info, stringResource(Res.string.msg_external_changed_title), name = m.name,
+            actionIcon = Icons.Outlined.Save, actionLabel = stringResource(Res.string.viewer_save_now),
+            onAction = { opener.consumeMessage(); opener.saveAsked(m.sessionId, m.docId) },
+        )
+        is OpenMessage.CopyDetected -> CardSpec(
+            Icons.Outlined.ContentCopy, stringResource(Res.string.msg_copy_title), name = m.names.first(), body = stringResource(Res.string.msg_copy_body),
+            actionIcon = Icons.Outlined.FileUpload, actionLabel = stringResource(Res.string.action_use_copy),
+            onAction = { opener.consumeMessage(); opener.useCopy(m.sessionId, m.docId, m.names.first()) },
+        )
+        is OpenMessage.NoChangeDetected -> CardSpec(
+            Icons.Outlined.Info, stringResource(Res.string.msg_nochange_title), name = m.name, body = stringResource(Res.string.msg_nochange_body),
+            actionIcon = Icons.Outlined.UploadFile, actionLabel = stringResource(Res.string.action_import_version),
+            onAction = { opener.consumeMessage(); opener.pickAndImportFor(m.docId) },
+        )
+        is OpenMessage.PendingFound -> CardSpec(
+            Icons.Outlined.Info, stringResource(Res.string.msg_pending_found, m.count),
+            actionIcon = Icons.Outlined.Visibility, actionLabel = stringResource(Res.string.action_review),
+            onAction = { opener.consumeMessage(); opener.showPending(true) },
+        )
     }
+    val bg = if (spec.error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.inverseSurface
+    val fg = if (spec.error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.inverseOnSurface
+    val accent = if (spec.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.inversePrimary
     Box(Modifier.fillMaxSize().navigationBarsPadding().padding(bottom = 64.dp), contentAlignment = Alignment.BottomCenter) {
         Surface(
-            Modifier.padding(12.dp).testTag("open_message"),
-            shape = MaterialTheme.shapes.medium,
-            color = if (m is OpenMessage.Error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.inverseSurface,
-            contentColor = if (m is OpenMessage.Error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.inverseOnSurface,
-            shadowElevation = 6.dp,
+            Modifier.padding(12.dp).fillMaxWidth().testTag("open_message"),
+            shape = MaterialTheme.shapes.medium, color = bg, contentColor = fg, shadowElevation = 6.dp,
         ) {
-            Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(text, Modifier.weight(1f, fill = false).padding(vertical = 8.dp))
-                when (m) {
-                    is OpenMessage.ExternalChanged -> TextButton(onClick = { opener.consumeMessage(); opener.saveAsked(m.sessionId, m.docId) }) { Text(stringResource(Res.string.viewer_save_now)) }
-                    is OpenMessage.CopyDetected -> TextButton(onClick = { opener.consumeMessage(); opener.useCopy(m.sessionId, m.docId, m.names.first()) }) { Text(stringResource(Res.string.action_use_copy)) }
-                    is OpenMessage.PendingFound -> TextButton(onClick = { opener.consumeMessage(); opener.showPending(true) }) { Text(stringResource(Res.string.action_review)) }
-                    is OpenMessage.NoChangeDetected -> TextButton(onClick = { opener.consumeMessage(); opener.pickAndImportFor(m.docId) }) { Text(stringResource(Res.string.action_import_version)) }
-                    else -> Unit
+            Column(Modifier.padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 4.dp)) {
+                Row(Modifier.padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.Icon(spec.icon, contentDescription = null, tint = accent, modifier = Modifier.padding(top = 2.dp).size(20.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(spec.title, style = MaterialTheme.typography.titleSmall)
+                        if (spec.name != null) {
+                            Text(spec.name, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = fg.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp))
+                        }
+                        if (spec.body != null) {
+                            Text(spec.body, style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.9f), modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+                // the buttons sit side by side at the bottom right: action first, close at the very end
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (spec.actionIcon != null) {
+                        androidx.compose.material3.IconButton(onClick = spec.onAction, modifier = Modifier.testTag("open_message_action")) {
+                            androidx.compose.material3.Icon(spec.actionIcon, contentDescription = spec.actionLabel, tint = accent)
+                        }
+                    }
+                    androidx.compose.material3.IconButton(onClick = opener::consumeMessage, modifier = Modifier.testTag("open_message_close")) {
+                        androidx.compose.material3.Icon(Icons.Outlined.Close, contentDescription = stringResource(Res.string.action_close), tint = fg.copy(alpha = 0.8f))
+                    }
                 }
             }
         }

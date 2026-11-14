@@ -212,8 +212,9 @@ class EngineE2ETest {
             println("P6 range-read throughput through the bridge: %.1f MiB/s (%d MiB in %.2f s, 256 KiB ranges)".format(mbps, size / 1024 / 1024, secs))
             assertTrue(ok, "content mismatch")
             assertEquals(size.toLong(), off)
-            // a 4K video is about 3 MiB/s: the bridge alone must never be the bottleneck
-            assertTrue(mbps > 20.0, "bridge too slow: $mbps MiB/s")
+            // a 4K video is about 3 MiB/s: the bridge alone must never be the bottleneck (loose bound: the
+            // measure moves a lot with machine load, 19-39 MiB/s seen on the same machine)
+            assertTrue(mbps > 8.0, "bridge too slow: $mbps MiB/s")
         }
     }
 }
