@@ -113,7 +113,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: engine-windows-x64
           path: engine/dist/windows-x64
@@ -154,7 +154,7 @@ jobs:
         with:
           packages: "platforms;android-36 build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: engine-android
           path: engine/dist/android
@@ -224,7 +224,7 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: "*-packages"
           merge-multiple: true
