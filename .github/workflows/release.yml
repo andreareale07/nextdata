@@ -253,7 +253,7 @@ jobs:
             echo "---"
             echo "**Verifica dei file:** \`sha256sum -c SHA256SUMS.txt\` · \`gh attestation verify <file> --repo ${{ github.repository }}\`"
           } >> notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.meta.outputs.tag }}
           name: NextData ${{ needs.meta.outputs.version }}
