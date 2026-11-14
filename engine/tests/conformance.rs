@@ -25,6 +25,10 @@ fn rand_bytes(n: usize, seed: u64) -> Vec<u8> {
 }
 
 /// Full conformance run against one profile. `sandbox` is a ref of a scratch directory the test may create.
+fn join_ref(parent: &str, name: &str) -> String {
+    format!("{}/{}", parent.trim_end_matches('/'), name)
+}
+
 fn conformance(h: &H, pid: &str, label: &str) {
     let c = h.ok("session.connect", json!({"profile_id": pid}));
     let s = c["session"].as_str().unwrap().to_string();
@@ -103,6 +107,108 @@ fn conformance(h: &H, pid: &str, label: &str) {
     let r = h.ok("transfer.download", json!({"session": s, "refs": [single], "dest_dir": dst.to_string_lossy(), "collision": "rename"}));
     assert_eq!(fs::read(dst.join("single file è.txt")).unwrap(), b"PRECIOUS");
     assert_eq!(fs::read_to_string(r["local_paths"][0].as_str().unwrap()).unwrap(), "unicode è ü 日本");
+
+    // ---- stat + random-access reads (M1)
+    let binref = entry_ref(&ls, "b.bin");
+    let st = h.ok("session.stat", json!({"session": s, "ref": binref}));
+    assert_eq!(st["entry"]["size"], 300_000);
+    assert!(st["version"]["strength"].is_string(), "{st}");
+    assert!(h.ok("session.stat", json!({"session": s, "ref": sub}))["version"].is_null());
+    assert_eq!(h.code("session.stat", json!({"session": s, "ref": format!("{sub}/nope")})), "NOT_FOUND");
+    let ro = h.ok("read.open", json!({"session": s, "ref": binref}));
+    assert_eq!(ro["size"], 300_000);
+    let hd = ro["handle"].as_str().unwrap().to_string();
+    let expect = rand_bytes(300_000, 1);
+    let rd_range = |off: u64, len: u64| -> (Vec<u8>, bool) {
+        use base64::Engine as _;
+        let r = h.ok("read.range", json!({"handle": hd, "offset": off, "length": len}));
+        (base64::engine::general_purpose::STANDARD.decode(r["data_b64"].as_str().unwrap()).unwrap(), r["eof"].as_bool().unwrap())
+    };
+    let (d, eof) = rd_range(0, 1000);
+    assert_eq!(d, expect[..1000]);
+    assert!(!eof);
+    let (d, _) = rd_range(123_456, 4096); // seek forward
+    assert_eq!(d, expect[123_456..123_456 + 4096]);
+    let (d, _) = rd_range(10, 50); // seek back
+    assert_eq!(d, expect[10..60]);
+    let (d, eof) = rd_range(299_000, 4096); // crosses EOF: short read
+    assert_eq!(d, expect[299_000..]);
+    assert!(eof);
+    let (d, eof) = rd_range(300_000, 10); // at EOF
+    assert!(d.is_empty() && eof);
+    let (d, eof) = rd_range(900_000, 10); // far beyond EOF
+    assert!(d.is_empty() && eof);
+    assert_eq!(h.code("read.range", json!({"handle": hd, "offset": 0, "length": 0})), "LIMIT_EXCEEDED");
+    assert_eq!(h.code("read.range", json!({"handle": hd, "offset": 0, "length": 256 * 1024 + 1})), "LIMIT_EXCEEDED");
+    // concurrent requests on one handle
+    let ops: Vec<(u64, u64)> = (0..4u64).map(|i| (h.start("read.range", json!({"handle": hd, "offset": i * 70_000, "length": 5000})), i)).collect();
+    for (op, i) in ops {
+        use base64::Engine as _;
+        let (r, _) = h.wait_full(op);
+        let r = r.unwrap_or_else(|e| panic!("concurrent range: {e}"));
+        let d = base64::engine::general_purpose::STANDARD.decode(r["data_b64"].as_str().unwrap()).unwrap();
+        assert_eq!(d, expect[(i * 70_000) as usize..(i * 70_000 + 5000) as usize]);
+    }
+    h.ok("read.close", json!({"handle": hd}));
+    assert_eq!(h.code("read.range", json!({"handle": hd, "offset": 0, "length": 10})), "INVALID_ARGUMENT");
+    // handle cap per session (4)
+    let hs: Vec<String> = (0..4).map(|_| h.ok("read.open", json!({"session": s, "ref": binref}))["handle"].as_str().unwrap().to_string()).collect();
+    assert_eq!(h.code("read.open", json!({"session": s, "ref": binref})), "LIMIT_EXCEEDED");
+    for x in hs {
+        h.ok("read.close", json!({"handle": x}));
+    }
+    // a directory is not readable as a file
+    assert_eq!(h.code("read.open", json!({"session": s, "ref": sub})), "INVALID_ARGUMENT");
+
+    // ---- replace an existing file safely (M2)
+    let aref = entry_ref(&lt, "a.txt");
+    let st0 = h.ok("session.stat", json!({"session": s, "ref": aref}));
+    let v0 = st0["version"].clone();
+    let base_sha = nd_engine::crypto::sha256_hex(b"hello a");
+    let edit1 = h.path("edit1.txt");
+    fs::write(&edit1, "edited once, and a bit longer").unwrap();
+    // an edit without the version it was based on is refused outright
+    assert_eq!(h.code("session.replace", json!({"session": s, "ref": aref, "local_path": edit1.to_string_lossy()})), "INVALID_ARGUMENT");
+    let r1 = h.ok("session.replace", json!({"session": s, "ref": aref, "local_path": edit1.to_string_lossy(), "expect_version": v0, "base_sha256": base_sha}));
+    assert_eq!(r1["entry"]["size"], 29, "{r1}");
+    assert!(["content", "size"].contains(&r1["replaced"]["verified"].as_str().unwrap()), "{r1}");
+    let dl = h.path("repl_dl");
+    fs::create_dir_all(&dl).unwrap();
+    h.ok("transfer.download", json!({"session": s, "refs": [aref], "dest_dir": dl.to_string_lossy(), "collision": "fail"}));
+    assert_eq!(fs::read_to_string(dl.join("a.txt")).unwrap(), "edited once, and a bit longer");
+    let after = names(&h.ok("session.list", json!({"session": s, "ref": tree})));
+    assert!(after.iter().all(|n| !n.contains(".nd-")), "leftovers after replace: {after:?}");
+    assert_eq!(h.ok("replace.pending", json!({}))["pending"].as_array().unwrap().len(), 0);
+    // stale base: the remote changed since v0
+    let edit2 = h.path("edit2.txt");
+    fs::write(&edit2, "second edit based on a stale version").unwrap();
+    let e = h.call("session.replace", json!({"session": s, "ref": aref, "local_path": edit2.to_string_lossy(), "expect_version": v0, "base_sha256": base_sha})).unwrap_err();
+    assert_eq!(e["code"], "CONFLICT", "{e}");
+    // size+mtime alone prove nothing on weak providers: without a content hash the edit is not applied silently
+    let v1 = r1["version"].clone();
+    if v1["strength"] == "weak" {
+        let e = h.call("session.replace", json!({"session": s, "ref": aref, "local_path": edit2.to_string_lossy(), "expect_version": v1})).unwrap_err();
+        assert_eq!(e["params"]["reason"], "unverifiable", "{e}");
+    }
+    // the remote file is still the first edit (nothing was overwritten by the refused attempts)
+    fs::remove_file(dl.join("a.txt")).unwrap();
+    h.ok("transfer.download", json!({"session": s, "refs": [aref], "dest_dir": dl.to_string_lossy(), "collision": "fail"}));
+    assert_eq!(fs::read_to_string(dl.join("a.txt")).unwrap(), "edited once, and a bit longer");
+    // save as copy keeps the remote untouched
+    let rc = h.ok("session.replace", json!({"session": s, "ref": aref, "local_path": edit2.to_string_lossy(), "resolution": "copy"}));
+    assert!(rc["entry"]["name"].as_str().unwrap().contains("modifica NextData"), "{rc}");
+    // deliberate overwrite, with a recovery copy of what gets replaced
+    let rec_dir = h.path("recovery");
+    fs::create_dir_all(&rec_dir).unwrap();
+    let ro2 = h.ok("session.replace", json!({"session": s, "ref": aref, "local_path": edit2.to_string_lossy(), "resolution": "overwrite", "recovery_dir": rec_dir.to_string_lossy()}));
+    assert_eq!(ro2["entry"]["size"], 36, "{ro2}");
+    assert_eq!(fs::read_to_string(rec_dir.join("a.txt")).unwrap(), "edited once, and a bit longer");
+    // nothing pending, recovery on a clean session is a no-op
+    assert_eq!(h.ok("replace.recover", json!({"session": s}))["recovered"].as_array().unwrap().len(), 0);
+    // a missing remote file is a conflict, not a silent re-creation
+    let gone = join_ref(&tree, "does-not-exist.txt");
+    let e = h.call("session.replace", json!({"session": s, "ref": gone, "local_path": edit2.to_string_lossy(), "expect_version": v0, "base_sha256": base_sha})).unwrap_err();
+    assert_eq!(e["code"], "CONFLICT", "{e}");
 
     // ---- rename (no replace) + stat result
     let rn = h.ok("session.rename", json!({"session": s, "ref": single, "new_name": "renamed.txt"}));
@@ -194,12 +300,14 @@ fn fake_pagination_and_sort() {
             None => break,
         }
     }
-    assert_eq!(all.len(), 31); // 30 images + "2026"
+    assert_eq!(all.len(), 32); // 30 images + the sample png + "2026"
     assert_eq!(pages, 4);
     assert_eq!(all[0], "2026"); // directories first
-    assert_eq!(all[1], "img_000.jpg");
+    assert_eq!(all[1], "campione.png");
+    assert_eq!(all[2], "img_000.jpg");
     let r = h.ok("session.list", json!({"session": s, "ref": "/Foto", "limit": 3, "sort": "size", "desc": true}));
-    assert_eq!(names(&r)[1], "img_029.jpg");
+    assert_eq!(names(&r)[1], "campione.png"); // the largest file first (after the directory)
+    assert_eq!(names(&r)[2], "img_029.jpg");
 }
 
 #[test]

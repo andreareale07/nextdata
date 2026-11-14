@@ -38,12 +38,15 @@ impl FakeProvider {
     /// Demo content for the `fake` profile.
     pub fn seeded() -> Arc<FakeProvider> {
         let p = Self::new();
-        for d in ["/Documenti", "/Foto", "/Foto/2026", "/Backup", "/Vuota"] {
+        for d in ["/Documenti", "/Foto", "/Foto/2026", "/Backup", "/Vuota", "/Musica"] {
             p.put_dir(d);
         }
         p.put_file("/LEGGIMI.txt", b"NextData demo storage\n");
         p.put_file("/Documenti/relazione.txt", "Relazione di prova.\n".repeat(100).as_bytes());
         p.put_file("/Documenti/budget.csv", b"voce,importo\naffitto,900\n");
+        p.put_file("/Foto/campione.png", &crate::sample::png());
+        p.put_file("/Documenti/campione.pdf", &crate::sample::pdf());
+        p.put_file("/Musica/campione.wav", &crate::sample::wav());
         p.put_file("/Foto/2026/gatto.bin", &vec![7u8; 300_000]);
         p.put_file("/Backup/archivio.tar", &vec![1u8; 2_500_000]);
         for i in 0..30 {

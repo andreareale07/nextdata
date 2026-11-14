@@ -23,6 +23,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+mod replace_cmds;
+mod workspace_cmds;
+
 pub const API_VERSION: u32 = 1;
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 const EXPORT_MAGIC: &[u8; 5] = b"NDPF1";
@@ -52,7 +55,26 @@ struct Session {
     cache: Mutex<Option<ListCache>>,
 }
 
+/// Pinned random-access read of one remote file (see docs/protocol.md `read.*`).
+struct ReadHandle {
+    session: String,
+    path: String,
+    version: RemoteVersion,
+    last_used: Instant,
+}
+
+const READ_MAX_LEN: usize = 256 * 1024;
+const READ_TTL: Duration = Duration::from_secs(60);
+const READ_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_PER_SESSION: usize = 4;
+const READ_GLOBAL: usize = 8;
+
 pub struct Inner {
+    workspace: Mutex<Option<Arc<workspace_cmds::WorkspaceDir>>>,
+    journal: Mutex<Option<Arc<crate::journal::JournalDir>>>,
+    /// profile|path of replacements running right now (one per path)
+    replacing: Mutex<std::collections::HashSet<String>>,
+    reads: Mutex<HashMap<String, ReadHandle>>,
     sink: Mutex<Option<Sink>>,
     store: Mutex<Option<Store>>,
     ops: Mutex<HashMap<u64, CancellationToken>>,
@@ -89,6 +111,10 @@ impl Engine {
         Arc::new(Engine {
             rt,
             inner: Arc::new(Inner {
+                workspace: Mutex::new(None),
+                journal: Mutex::new(None),
+                replacing: Mutex::new(Default::default()),
+                reads: Mutex::new(HashMap::new()),
                 sink: Mutex::new(Some(sink)),
                 store: Mutex::new(None),
                 ops: Mutex::new(HashMap::new()),
@@ -191,6 +217,9 @@ impl Inner {
                     s.provider.close().await;
                 }
                 self.with_store(|s| s.delete_profile(&id))?;
+                if let Some(ws) = self.workspace.lock().unwrap().clone() {
+                    ws.orphan_profile(&id);
+                }
                 Ok(json!({}))
             }
             "profiles.export" => self.cmd_export(&a),
@@ -242,12 +271,82 @@ impl Inner {
             "session.close" => {
                 let id = req_str(&a, "session")?;
                 let s = self.sessions.lock().unwrap().remove(&id);
+                self.reads.lock().unwrap().retain(|_, h| h.session != id);
                 if let Some(s) = s {
                     s.provider.close().await;
                 }
                 Ok(json!({}))
             }
             "session.list" => self.cmd_list(token, &a).await,
+            "session.replace" => self.cmd_replace(token, &a).await,
+            "replace.pending" => self.cmd_replace_pending(&a),
+            "replace.recover" => self.cmd_replace_recover(&a).await,
+            "replace.forget" => self.cmd_replace_forget(&a),
+            "open.prepare" => self.cmd_open_prepare(op, token, &a).await,
+            "open.check" => self.cmd_open_check(&a).await,
+            "open.save" => self.cmd_open_save(token, &a).await,
+            "open.import" => self.cmd_open_import(&a).await,
+            "open.list" => self.cmd_open_list(&a),
+            "open.recover" => self.cmd_open_recover(&a).await,
+            "open.mark_open" => self.cmd_open_mark(&a, false),
+            "open.release" => self.cmd_open_mark(&a, true),
+            "open.discard" => self.cmd_open_discard(&a),
+            "open.export" => self.cmd_open_export(&a),
+            "cache.stats" => self.cmd_cache_stats(),
+            "cache.purge" => self.cmd_cache_purge(&a),
+            "session.stat" => {
+                let s = self.session(&req_str(&a, "session")?)?;
+                let r = norm_ref(&req_str(&a, "ref")?)?;
+                let pr = Progress { cb: Arc::new(|_| {}), cancel: token };
+                let st = pr.run(async { s.provider.stat(&r).await }).await?;
+                let version = if st.kind == EntryKind::File { Some(pr.run(async { s.provider.version(&r).await }).await?) } else { None };
+                let parent = parent_of(&r).unwrap_or("/".into());
+                Ok(json!({"entry": transfer::entry_of(&parent, st), "version": version}))
+            }
+            "read.open" => {
+                let sid = req_str(&a, "session")?;
+                let s = self.session(&sid)?;
+                let r = norm_ref(&req_str(&a, "ref")?)?;
+                let pr = Progress { cb: Arc::new(|_| {}), cancel: token };
+                let version = pr.run(async { s.provider.version(&r).await }).await?;
+                let mut reads = self.reads.lock().unwrap();
+                reads.retain(|_, h| h.last_used.elapsed() < READ_TTL && self.sessions.lock().unwrap().contains_key(&h.session));
+                if reads.len() >= READ_GLOBAL || reads.values().filter(|h| h.session == sid).count() >= READ_PER_SESSION {
+                    return Err(NdError::new(Code::LimitExceeded).with("limit", "read_handles"));
+                }
+                let id = format!("r{}", self.counter.fetch_add(1, Ordering::Relaxed));
+                reads.insert(id.clone(), ReadHandle { session: sid, path: r, version: version.clone(), last_used: Instant::now() });
+                Ok(json!({"handle": id, "size": version.size, "version": version}))
+            }
+            "read.range" => {
+                let id = req_str(&a, "handle")?;
+                let offset = a.get("offset").and_then(|v| v.as_u64()).ok_or_else(|| NdError::invalid("offset"))?;
+                let length = a.get("length").and_then(|v| v.as_u64()).ok_or_else(|| NdError::invalid("length"))? as usize;
+                if length == 0 || length > READ_MAX_LEN {
+                    return Err(NdError::new(Code::LimitExceeded).with("limit", "read_length"));
+                }
+                let (sid, path, version) = {
+                    let mut reads = self.reads.lock().unwrap();
+                    let h = reads.get_mut(&id).filter(|h| h.last_used.elapsed() < READ_TTL).ok_or_else(|| NdError::invalid("handle"))?;
+                    h.last_used = Instant::now();
+                    (h.session.clone(), h.path.clone(), h.version.clone())
+                };
+                let s = self.session(&sid)?;
+                let pr = Progress { cb: Arc::new(|_| {}), cancel: token };
+                let data = match tokio::time::timeout(READ_TIMEOUT, pr.run(async { s.provider.read_at(&path, offset, length, &version).await })).await {
+                    Ok(r) => r?,
+                    Err(_) => return Err(NdError::new(Code::Timeout).with("path", path)),
+                };
+                if data.len() > length {
+                    return Err(NdError::new(Code::ServerAnomaly).detail("provider returned too much data"));
+                }
+                let eof = version.size.is_some_and(|sz| offset + data.len() as u64 >= sz) || data.is_empty();
+                Ok(json!({"data_b64": B64.encode(&data), "eof": eof}))
+            }
+            "read.close" => {
+                self.reads.lock().unwrap().remove(&req_str(&a, "handle")?);
+                Ok(json!({}))
+            }
             "session.mkdir" => {
                 let s = self.session(&req_str(&a, "session")?)?;
                 let parent = norm_ref(&req_str(&a, "parent_ref")?)?;
@@ -366,6 +465,10 @@ impl Inner {
         let pmk = B64.decode(req_str(a, "pmk_b64")?).map_err(|_| NdError::invalid("pmk_b64"))?;
         let st = Store::open(&dir, &pmk)?;
         *self.store.lock().unwrap() = Some(st);
+        *self.journal.lock().unwrap() = Some(Arc::new(crate::journal::JournalDir::open(&dir, &pmk)?));
+        let ws = Arc::new(workspace_cmds::WorkspaceDir::open(&dir, &pmk)?);
+        ws.startup_recovery();
+        *self.workspace.lock().unwrap() = Some(ws);
         Ok(json!({
             "api_version": API_VERSION,
             "version": env!("CARGO_PKG_VERSION"),

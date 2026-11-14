@@ -1,6 +1,6 @@
 //! Provider abstraction: protocol engines implement this; everything above is protocol-agnostic.
 use crate::error::{Code, NdError, Result};
-use crate::types::RawEntry;
+use crate::types::{EntryKind, RawEntry, RemoteVersion};
 use async_trait::async_trait;
 use std::future::Future;
 use std::sync::Arc;
@@ -86,12 +86,89 @@ pub trait Provider: Send + Sync {
     /// Empty directory only; recursion is done by the engine (explicit stack, never through links).
     async fn delete_dir(&self, path: &str) -> Result<()>;
     async fn open_read(&self, path: &str, offset: u64) -> Result<Reader>;
+    /// Identity of the object (size/mtime/etag...). Default: weak identity from `stat`.
+    async fn version(&self, path: &str) -> Result<RemoteVersion> {
+        let e = self.stat(path).await?;
+        if e.kind != EntryKind::File {
+            return Err(NdError::new(Code::InvalidArgument).with("path", path).detail("not a file"));
+        }
+        Ok(RemoteVersion::from_stat(&e, 1000))
+    }
+    /// Random-access read of at most `len` bytes at `offset` (fewer only at EOF; empty past EOF).
+    /// `pin` is the version obtained at open time: providers with a conditional GET refuse with
+    /// VERSION_CHANGED when the object changed. Default: sequential reader + `take` (correct everywhere).
+    async fn read_at(&self, path: &str, offset: u64, len: usize, _pin: &RemoteVersion) -> Result<Vec<u8>> {
+        read_via_open_read(self, path, offset, len).await
+    }
     /// Create `path` from `src`. With `overwrite == false` an existing target yields ALREADY_EXISTS.
     async fn put(&self, path: &str, src: Reader, size: u64, overwrite: bool, pr: &Progress) -> Result<()>;
+    /// Replace the existing file `ctx.path` with `src` (a snapshot of `ctx.size` bytes, SHA-256 `ctx.sha256`).
+    /// `ctx.attempt` makes every temporary remote name unique and recognisable as ours.
+    /// Default: the NON-atomic backup/rollback sequence (`replace::replace_with_backup`), journaled.
+    async fn replace(
+        &self,
+        ctx: &crate::replace::ReplaceCtx,
+        src: Reader,
+        log: &mut dyn crate::journal::ReplaceLog,
+        pr: &Progress,
+    ) -> Result<crate::replace::Replaced> {
+        crate::replace::replace_with_backup(self, ctx, src, log, pr).await
+    }
     async fn close(&self) {}
 }
 
-pub async fn exists(p: &dyn Provider, path: &str) -> Result<bool> {
+/// Replacement through the provider's own overwrite (`put(overwrite=true)`): used where the protocol has a
+/// replacing rename/PUT. A lost answer is never reported as success or failure without looking.
+pub async fn replace_via_put<P: Provider + ?Sized>(
+    p: &P,
+    c: &crate::replace::ReplaceCtx,
+    src: Reader,
+    atomic: bool,
+    log: &mut dyn crate::journal::ReplaceLog,
+    pr: &Progress,
+) -> Result<crate::replace::Replaced> {
+    use crate::journal::Step;
+    use crate::replace::{matches, Replaced};
+    let (path, size, sha) = (c.path.as_str(), c.size, c.sha256.as_str());
+    log.record(c.begin_step())?;
+    log.record(Step::PutIntent)?;
+    let res = match p.put(path, src, size, true, pr).await {
+        Ok(()) => match matches(p, path, size, sha).await {
+            Ok(Some(v)) => Ok(Replaced { atomic, verified: v, residue: vec![] }),
+            _ => Err(NdError::new(Code::SaveUncertain).with("path", path).with("cause", "verification_failed")),
+        },
+        Err(e) if matches!(e.code, Code::Network | Code::Timeout) => match matches(p, path, size, sha).await {
+            Ok(Some(v)) => Ok(Replaced { atomic, verified: v, residue: vec![] }),
+            _ => Err(NdError::new(Code::SaveUncertain).with("path", path).with("cause", format!("{:?}", e.code))),
+        },
+        Err(e) => Err(e),
+    };
+    let _ = log.record(match &res {
+        Ok(r) => Step::Completed { atomic: r.atomic },
+        Err(e) if e.code == Code::SaveUncertain => Step::Uncertain,
+        Err(e) => Step::Failed { code: format!("{:?}", e.code) },
+    });
+    res
+}
+
+/// Reads up to `len` bytes starting at `offset` through `open_read` (the reader is dropped afterwards).
+pub async fn read_via_open_read<P: Provider + ?Sized>(p: &P, path: &str, offset: u64, len: usize) -> Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut r = p.open_read(path, offset).await?;
+    let mut buf = vec![0u8; len];
+    let mut filled = 0;
+    while filled < len {
+        let n = r.read(&mut buf[filled..]).await.map_err(NdError::from)?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    buf.truncate(filled);
+    Ok(buf)
+}
+
+pub async fn exists<P: Provider + ?Sized>(p: &P, path: &str) -> Result<bool> {
     match p.stat(path).await {
         Ok(_) => Ok(true),
         Err(e) if e.code == Code::NotFound => Ok(false),

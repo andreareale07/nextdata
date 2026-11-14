@@ -30,7 +30,7 @@ Nota: i callback arrivano su thread del motore: Kotlin cambia subito dispatcher 
 ## Codici di errore (`err.code`)
 INTERNAL, INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS, PERMISSION_DENIED, AUTH_FAILED, HOST_KEY_REJECTED,
 HOST_KEY_CHANGED, TLS_UNTRUSTED, TLS_ERROR, NETWORK, TIMEOUT, UNSUPPORTED, POLICY_DENIED, IO, DISK_FULL,
-SERVER_ANOMALY, LIMIT_EXCEEDED, IMPORT_INVALID, PASSPHRASE_INVALID, NOT_INITIALIZED, SESSION_CLOSED, PROTOCOL_DISABLED.
+SERVER_ANOMALY, LIMIT_EXCEEDED, IMPORT_INVALID, PASSPHRASE_INVALID, NOT_INITIALIZED, SESSION_CLOSED, PROTOCOL_DISABLED, VERSION_CHANGED, RANGE_UNSUPPORTED, CONFLICT (`params.reason`), SAVE_UNCERTAIN.
 `params` tipici: `{"name":..., "path":..., "detail":"stringa tecnica non localizzata, solo diagnostica"}`.
 
 ## Comandi
@@ -44,6 +44,13 @@ SERVER_ANOMALY, LIMIT_EXCEEDED, IMPORT_INVALID, PASSPHRASE_INVALID, NOT_INITIALI
 | `profiles.import` | `{data_b64, passphrase, apply:bool}` | `{profiles:[Profile], conflicts:[{id,name}] , applied:bool}` (apply=false → anteprima) |
 | `session.connect` | `{profile_id}` | `{session:"s1", home_ref}` (può emettere `prompt`) |
 | `session.list` | `{session, ref, page_token?, limit? (default 200, max 500), sort?:"name"\|"size"\|"mtime", desc?:bool}` | `{ref, parent_ref:null\|string, breadcrumbs:[{name,ref}], entries:[Entry], next_token:null\|string, total_hint?:int}` |
+| `session.stat` | `{session, ref}` | `{entry:Entry, version:RemoteVersion or null}` (`version` solo per file) |
+| `read.open` | `{session, ref}` | `{handle, size, version}` (fissa la versione; max 4 handle per sessione, 8 globali, TTL 60 s di inattività; chiusi con `session.close`; `LIMIT_EXCEEDED` oltre) |
+| `read.range` | `{handle, offset, length (1..262144)}` | `{data_b64, eof}`; `offset` oltre la fine → vuoto con `eof:true`; timeout 15 s (`TIMEOUT`); cancellabile; `VERSION_CHANGED` se l'oggetto è cambiato (S3/WebDAV con ETag), `RANGE_UNSUPPORTED` se il server ignora `Range` |
+| `read.close` | `{handle}` | `{}` |
+| `session.replace` | `{session, ref, local_path, expect_version?, base_sha256?, resolution?, confirm_unverified?, recovery_dir?}` | `{entry, version, replaced:{atomic,verified,residue}, attempt, resolution}` — vedi `docs/replace-journal.md` |
+| `replace.pending` / `replace.recover` / `replace.forget` | `{profile_id?}` / `{session}` / `{attempt, confirm:true}` | `{pending:[...]}` / `{recovered:[{attempt,path,outcome,reason}]}` / `{}` |
+| `open.*`, `cache.*` | vedi `docs/open-edit.md` | workspace locale dei file aperti (prepare/check/save/import/recover/list/export/discard) |
 | `session.mkdir` | `{session, parent_ref, name}` | `{entry:Entry}` |
 | `session.rename` | `{session, ref, new_name}` | `{entry:Entry}` |
 | `session.delete` | `{session, refs:[string], recursive:bool}` | `{deleted:int}` (progress per item) |
@@ -64,6 +71,10 @@ Entry   { name, ref, kind:"file"|"dir"|"symlink"|"other", size:int|null, mtime_m
 ```
 `ref` è opaco: Kotlin non costruisce né analizza percorsi (usa `ref`, `parent_ref`, `breadcrumbs`).
 Nuovi nomi (mkdir/rename) passano come testo utente e il motore li valida (`INVALID_ARGUMENT`).
+
+RemoteVersion { size, mtime_ms, mtime_resolution_ms (SFTP/WebDAV/S3: 1000), etag?, version_id?, strength:"strong"|"weak"|"none" }
+`strength` strong = identificatore del server (ETag S3, `getetag` WebDAV, `x-amz-version-id`); weak = solo size+mtime (SFTP, SMB, WebDAV senza ETag): non è prova di identità.
+Nota: `read.range` usa base64 in JSON (≤ 256 KiB per chiamata); il throughput è da misurare (spike P6). Per SFTP/SMB `read_at` oggi riapre il file a ogni chiamata (corretto ma non ottimizzato).
 
 ## SMB (feature `smb` dell'engine; vedi docs/smb-gate.md e docs/adr/0001)
 - `Profile.share` obbligatorio (senza barre); `Profile.username` accetta `DOMINIO\utente`; `Profile.port` 0 = 445.

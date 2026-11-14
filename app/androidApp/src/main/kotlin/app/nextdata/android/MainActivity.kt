@@ -44,6 +44,15 @@ class FilesHolder : PlatformFiles {
     override suspend fun openLocation(location: String): Boolean = d().openLocation(location)
     override suspend fun saveBytes(suggestedName: String, bytes: ByteArray): Boolean = d().saveBytes(suggestedName, bytes)
     override suspend fun pickBytes(extensions: List<String>): ByteArray? = d().pickBytes(extensions)
+    override suspend fun readFile(path: String, maxBytes: Long): ByteArray? = d().readFile(path, maxBytes)
+    override suspend fun writeFile(path: String, bytes: ByteArray): Boolean = d().writeFile(path, bytes)
+    override suspend fun decodeImage(path: String, maxPixels: Int) = d().decodeImage(path, maxPixels)
+    // the watcher may poll while no Activity exists: that is "cannot look", never a crash
+    override suspend fun listLocal(dir: String) = delegate?.listLocal(dir)
+    override suspend fun pdfPageCount(path: String): Int? = d().pdfPageCount(path)
+    override suspend fun renderPdfPage(path: String, index: Int, widthPx: Int) = d().renderPdfPage(path, index, widthPx)
+    override suspend fun pickFileToImport(): String? = d().pickFileToImport()
+    override suspend fun openExternal(path: String, edit: Boolean): Boolean = d().openExternal(path, edit)
 }
 
 class NextDataApplication : Application() {
@@ -62,6 +71,7 @@ class NextDataApplication : Application() {
             kind = PlatformKind.Android,
             secretProtection = SecretProtection.AndroidKeystore,
             appVersion = "1.0.0" + if (useFake) " (fake engine)" else "",
+            mediaPlayer = { req, mod -> RangeMediaPlayer(req, mod) },
             reduceMotion = {
                 // "Remove animations" / animator scale 0 in the system settings
                 android.provider.Settings.Global.getFloat(contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
@@ -119,7 +129,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         // the system may have cut the connection while the app was in the background: probe and reconnect
-        (application as NextDataApplication).existingController()?.onAppResumed()
+        (application as NextDataApplication).existingController()?.let { it.onAppResumed(); it.opener.onForeground() }
     }
 
     override fun onDestroy() {

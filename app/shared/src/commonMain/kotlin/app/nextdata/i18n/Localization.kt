@@ -57,6 +57,10 @@ fun errorStringRes(code: String): StringResource = when (code) {
     ErrorCodes.NOT_INITIALIZED -> Res.string.err_NOT_INITIALIZED
     ErrorCodes.SESSION_CLOSED -> Res.string.err_SESSION_CLOSED
     ErrorCodes.PROTOCOL_DISABLED -> Res.string.err_PROTOCOL_DISABLED
+    ErrorCodes.VERSION_CHANGED -> Res.string.err_VERSION_CHANGED
+    ErrorCodes.RANGE_UNSUPPORTED -> Res.string.err_RANGE_UNSUPPORTED
+    ErrorCodes.CONFLICT -> Res.string.err_CONFLICT
+    ErrorCodes.SAVE_UNCERTAIN -> Res.string.err_SAVE_UNCERTAIN
     else -> Res.string.err_UNKNOWN
 }
 

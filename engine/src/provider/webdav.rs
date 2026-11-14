@@ -5,7 +5,7 @@ use super::{Progress, Provider, Reader, Trust, CHUNK};
 use crate::dates::{parse_http_date, parse_rfc3339};
 use crate::error::{Code, NdError, Result};
 use crate::pathguard::{basename, norm_ref, parent_of};
-use crate::types::{EntryKind, Profile, RawEntry, Secrets};
+use crate::types::{EntryKind, Profile, RawEntry, RemoteVersion, Secrets, VersionStrength};
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
@@ -204,6 +204,37 @@ pub fn parse_multistatus(xml: &[u8], base_path: &str) -> Result<Vec<(String, Raw
     Ok(out)
 }
 
+/// First `getetag` of a multistatus (weak-validator prefix `W/` and quotes removed; never a DOCTYPE).
+pub fn parse_etag(xml: &[u8]) -> Result<Option<String>> {
+    let mut rd = quick_xml::Reader::from_reader(xml);
+    rd.config_mut().trim_text(true);
+    let (mut in_etag, mut text) = (false, String::new());
+    loop {
+        match rd.read_event() {
+            Err(e) => return Err(NdError::new(Code::ServerAnomaly).detail(e)),
+            Ok(Event::Eof) => return Ok(None),
+            Ok(Event::DocType(_)) => return Err(NdError::new(Code::ServerAnomaly).detail("DOCTYPE not allowed")),
+            Ok(Event::Start(e)) => {
+                in_etag = AsRef::<str>::as_ref(&e.local_name()).eq_ignore_ascii_case("getetag");
+                text.clear();
+            }
+            Ok(Event::Text(t)) if in_etag => text.push_str(&t.xml10_content()),
+            Ok(Event::GeneralRef(r)) if in_etag => {
+                let name: &str = &r;
+                text.push(crate::xmlutil::resolve_ref(name)?);
+            }
+            Ok(Event::End(e)) => {
+                if in_etag && AsRef::<str>::as_ref(&e.local_name()).eq_ignore_ascii_case("getetag") {
+                    let t = text.trim().trim_start_matches("W/").trim_matches('"').to_string();
+                    return Ok(if t.is_empty() { None } else { Some(t) });
+                }
+                in_etag = false;
+            }
+            _ => {}
+        }
+    }
+}
+
 fn href_to_path(href: &str, base: &str) -> Option<String> {
     let mut h = href.trim();
     if let Some(i) = h.find("://") {
@@ -270,6 +301,69 @@ impl Provider for WebDavProvider {
         Ok(Box::new(reader))
     }
 
+    async fn version(&self, path: &str) -> Result<RemoteVersion> {
+        let st = self.stat(path).await?;
+        if st.kind != EntryKind::File {
+            return Err(NdError::new(Code::InvalidArgument).with("path", path).detail("not a file"));
+        }
+        let mut v = RemoteVersion::from_stat(&st, 1000);
+        // getetag is optional in RFC 4918: ask separately so a server without it still lists normally
+        let body = r#"<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><getetag/></prop></propfind>"#;
+        let url = self.url(path);
+        if let Ok(r) = self.send(self.req("PROPFIND", &url).header("Depth", "0").header("Content-Type", "application/xml").body(body), path).await {
+            let mut buf: Vec<u8> = Vec::new();
+            let mut s = r.bytes_stream();
+            while let Some(Ok(c)) = s.next().await {
+                buf.extend_from_slice(&c);
+                if buf.len() > MAX_XML {
+                    return Err(NdError::new(Code::LimitExceeded).with("path", path));
+                }
+            }
+            if let Some(e) = parse_etag(&buf)? {
+                v.etag = Some(e);
+                v.strength = VersionStrength::Strong;
+            }
+        }
+        Ok(v)
+    }
+
+    async fn read_at(&self, path: &str, offset: u64, len: usize, pin: &RemoteVersion) -> Result<Vec<u8>> {
+        if len == 0 || pin.size.is_some_and(|s| offset >= s) {
+            return Ok(vec![]);
+        }
+        let last = offset + len as u64 - 1;
+        let mut rb = self.req("GET", &self.url(path)).header("Range", format!("bytes={offset}-{last}"));
+        if let Some(e) = &pin.etag {
+            rb = rb.header("If-Match", format!("\"{e}\""));
+        }
+        let r = rb.send().await.map_err(|e| map_reqwest(e, &self.slot))?;
+        if r.status() == StatusCode::PRECONDITION_FAILED {
+            return Err(NdError::new(Code::VersionChanged).with("path", path));
+        }
+        if r.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+            return Ok(vec![]);
+        }
+        if !r.status().is_success() {
+            return Err(status_err(r.status(), path));
+        }
+        if r.status() != StatusCode::PARTIAL_CONTENT {
+            return Err(NdError::new(Code::RangeUnsupported).with("path", path));
+        }
+        let mut buf = Vec::with_capacity(len);
+        let mut s = r.bytes_stream();
+        while let Some(c) = s.next().await {
+            buf.extend_from_slice(&c.map_err(|e| map_reqwest(e, &self.slot))?);
+            if buf.len() > len {
+                return Err(NdError::new(Code::ServerAnomaly).with("path", path).detail("server sent more data than requested"));
+            }
+        }
+        Ok(buf)
+    }
+
+    async fn replace(&self, ctx: &crate::replace::ReplaceCtx, src: Reader, log: &mut dyn crate::journal::ReplaceLog, pr: &Progress) -> Result<crate::replace::Replaced> {
+        super::replace_via_put(self, ctx, src, false, log, pr).await
+    }
+
     async fn put(&self, path: &str, src: Reader, size: u64, overwrite: bool, pr: &Progress) -> Result<()> {
         if !overwrite && super::exists(self, path).await? {
             return Err(NdError::new(Code::AlreadyExists).with("path", path));
@@ -327,5 +421,14 @@ mod tests {
     fn doctype_rejected() {
         let xml = br#"<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><multistatus/>"#;
         assert!(parse_multistatus(xml, "").is_err());
+    }
+
+    #[test]
+    fn etag_parsing() {
+        let x = br#"<D:multistatus xmlns:D="DAV:"><D:response><D:propstat><D:prop><D:getetag>W/"abc-1"</D:getetag></D:prop></D:propstat></D:response></D:multistatus>"#;
+        assert_eq!(parse_etag(x).unwrap().as_deref(), Some("abc-1"));
+        let none = br#"<D:multistatus xmlns:D="DAV:"><D:response><D:propstat><D:prop/></D:propstat></D:response></D:multistatus>"#;
+        assert_eq!(parse_etag(none).unwrap(), None);
+        assert!(parse_etag(br#"<!DOCTYPE x [<!ENTITY a "b">]><a/>"#).is_err());
     }
 }

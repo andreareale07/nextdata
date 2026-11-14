@@ -18,6 +18,40 @@ pub struct RawEntry {
     pub mtime_ms: Option<i64>,
 }
 
+/// How strongly a version identifier proves "the remote object is unchanged".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VersionStrength {
+    /// Server-issued content identifier (ETag / version id).
+    Strong,
+    /// Only size + mtime (coarse resolution possible): not proof of identity.
+    Weak,
+    /// Nothing usable.
+    None,
+}
+
+/// Remote object identity used for conflict detection and pinned range reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteVersion {
+    pub size: Option<u64>,
+    pub mtime_ms: Option<i64>,
+    /// Granularity of `mtime_ms` as the protocol delivers it (SFTP/WebDAV: 1000, SMB: 1, S3: 1000).
+    pub mtime_resolution_ms: u32,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub etag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version_id: Option<String>,
+    pub strength: VersionStrength,
+}
+
+impl RemoteVersion {
+    /// Identity from a plain stat: weak by definition.
+    pub fn from_stat(e: &RawEntry, resolution_ms: u32) -> RemoteVersion {
+        let strength = if e.size.is_some() && e.mtime_ms.is_some() { VersionStrength::Weak } else { VersionStrength::None };
+        RemoteVersion { size: e.size, mtime_ms: e.mtime_ms, mtime_resolution_ms: resolution_ms, etag: None, version_id: None, strength }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Entry {
     pub name: String,

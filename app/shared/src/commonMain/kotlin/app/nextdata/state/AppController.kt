@@ -54,6 +54,7 @@ class AppController(
     val profiles = ProfilesViewModel(client, scope)
     val transfers = TransfersViewModel(client, scope, files = env.files)
     val profileTransfer = ProfileTransferService(client, env.files, profiles)
+    val opener = OpenManager(client, scope, env.files, autoSaveExternal = { settings.state.value.autoSaveExternal }, mediaAvailable = { env.mediaPlayer != null })
 
     private val _boot = MutableStateFlow<BootState>(BootState.Loading)
     val boot: StateFlow<BootState> = _boot.asStateFlow()
@@ -156,6 +157,7 @@ class AppController(
             settings.load()
             profiles.load()
             _boot.value = BootState.Ready(info)
+            scope.launch { opener.refreshPending(announce = true) }
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -229,8 +231,10 @@ class AppController(
                         initialRef = settings.state.value.lastRefs[profile.id].takeIf { profile.basePath.isBlank() },
                         askDownloadLocation = { settings.state.value.askDownloadLocation },
                         onLocation = { ref, name -> rememberLocation(profile.id, ref, name) },
+                        opener = opener,
                     )
                     _security.value = SecurityInfo.from(profile, prompts.lastAccepted)
+                    opener.recover(r.value.session) // settle saves interrupted by a crash or a lost connection
                     _browser.value = vm
                     if (reconnectFrom != null) transfers.remapSession(reconnectFrom, r.value.session)
                     _connection.value = ConnectionState.Idle

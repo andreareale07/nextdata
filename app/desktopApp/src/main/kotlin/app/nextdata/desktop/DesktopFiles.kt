@@ -9,7 +9,13 @@ import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import javax.swing.JFileChooser
+
+private val NEVER_LAUNCH = setOf(
+    "exe", "com", "bat", "cmd", "ps1", "psm1", "msi", "msp", "lnk", "scr", "js", "jse", "vbs", "vbe", "wsf", "wsh", "hta", "jar",
+    "reg", "dll", "cpl", "pif", "gadget", "inf", "url", "appx", "msix", "application", "chm",
+)
 
 /** Native-looking AWT/Swing dialogs; always shown on the EDT. */
 class DesktopFiles(private val frame: () -> Frame?) : PlatformFiles {
@@ -62,6 +68,56 @@ class DesktopFiles(private val frame: () -> Frame?) : PlatformFiles {
         } ?: return false
         withContext(Dispatchers.IO) { target.writeBytes(bytes) }
         return true
+    }
+
+    // ---- opened documents (workspace copies)
+
+    override suspend fun readFile(path: String, maxBytes: Long): ByteArray? = withContext(Dispatchers.IO) {
+        val f = File(path)
+        if (!f.isFile || f.length() > maxBytes) null else runCatching { f.readBytes() }.getOrNull()
+    }
+
+    override suspend fun writeFile(path: String, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        runCatching { File(path).writeBytes(bytes) }.isSuccess
+    }
+
+    override suspend fun listLocal(dir: String): List<app.nextdata.platform.LocalStat>? = withContext(Dispatchers.IO) {
+        File(dir).listFiles()?.filter { it.isFile }?.map { app.nextdata.platform.LocalStat(it.name, it.length(), it.lastModified()) }?.sortedBy { it.name }
+    }
+
+    /** Skia decodes JPEG, PNG, WebP, GIF, BMP, ICO...; big images are scaled down to about [maxPixels]. */
+    override suspend fun decodeImage(path: String, maxPixels: Int): androidx.compose.ui.graphics.ImageBitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            val img = org.jetbrains.skia.Image.makeFromEncoded(File(path).readBytes())
+            val px = img.width.toLong() * img.height
+            if (px <= maxPixels) return@runCatching img.toComposeImageBitmap()
+            val k = Math.sqrt(maxPixels.toDouble() / px)
+            val w = (img.width * k).toInt().coerceAtLeast(1)
+            val h = (img.height * k).toInt().coerceAtLeast(1)
+            val surface = org.jetbrains.skia.Surface.makeRasterN32Premul(w, h)
+            surface.canvas.drawImageRect(img, org.jetbrains.skia.Rect.makeWH(w.toFloat(), h.toFloat()))
+            surface.makeImageSnapshot().toComposeImageBitmap()
+        }.getOrNull()
+    }
+
+    override suspend fun pickFileToImport(): String? = edt {
+        val d = fileDialog("", FileDialog.LOAD).apply { isVisible = true }
+        d.file?.let { File(d.directory, it).absolutePath }
+    }
+
+    /**
+     * Opens the workspace copy with the default app. Programs and scripts are never launched this way (the user can
+     * still download them): a file from a server must not run just because it was opened.
+     */
+    override suspend fun openExternal(path: String, edit: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val f = File(path)
+        if (!f.isFile || f.extension.lowercase() in NEVER_LAUNCH) return@withContext false
+        runCatching {
+            if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
+                java.awt.Desktop.getDesktop().open(f)
+                true
+            } else false
+        }.getOrDefault(false)
     }
 
     override suspend fun pickBytes(extensions: List<String>): ByteArray? {

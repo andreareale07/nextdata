@@ -24,6 +24,9 @@ interface SecretStore {
 }
 
 /** A set of local paths ready for `transfer.upload`; [release] frees temporary copies / descriptors. */
+/** Cheap description of a local file, used to notice that another app wrote it (never its content). */
+data class LocalStat(val name: String, val size: Long, val mtimeMs: Long)
+
 class UploadSelection(val paths: List<String>, val totalBytes: Long? = null, val release: () -> Unit = {})
 
 /**
@@ -68,6 +71,32 @@ interface PlatformFiles {
 
     /** Lets the user pick a file and returns its bytes (null if cancelled). */
     suspend fun pickBytes(extensions: List<String>): ByteArray?
+
+    // ---- local files of opened documents (docs/open-edit.md); the paths come from the engine's workspace
+
+    /** Whole file, or null if missing / larger than [maxBytes]. */
+    suspend fun readFile(path: String, maxBytes: Long): ByteArray? = null
+
+    /** Replaces the file content (the workspace copy being edited); false on failure. */
+    suspend fun writeFile(path: String, bytes: ByteArray): Boolean = false
+
+    /** Decodes an image file, downsampled to about [maxPixels]; null if the format is not supported or the file is damaged. */
+    suspend fun decodeImage(path: String, maxPixels: Int = 16_000_000): androidx.compose.ui.graphics.ImageBitmap? = null
+
+    /** Files directly inside [dir] (name, size, mtime); null if the folder cannot be read. Used to notice external edits. */
+    suspend fun listLocal(dir: String): List<LocalStat>? = null
+
+    /** Number of pages of a PDF, or null if it cannot be shown here (no renderer, password-protected, damaged). */
+    suspend fun pdfPageCount(path: String): Int? = null
+
+    /** One PDF page as an image about [widthPx] wide; null on failure. */
+    suspend fun renderPdfPage(path: String, index: Int, widthPx: Int): androidx.compose.ui.graphics.ImageBitmap? = null
+
+    /** The user picks a file to use as the modified version of an opened document; a local path the engine can read. */
+    suspend fun pickFileToImport(): String? = null
+
+    /** Hands the file to another app (edit = may change it). False if no app can handle it. */
+    suspend fun openExternal(path: String, edit: Boolean): Boolean = false
 }
 
 /** Everything platform-specific the shared app needs. */
@@ -80,7 +109,22 @@ class AppEnvironment(
     val appVersion: String = "1.0.0",
     /** True when the user asked the OS to remove animations (Android: animator scale 0). */
     val reduceMotion: () -> Boolean = { false },
+    /**
+     * In-app audio/video player fed by range reads (Android). Null where there is none (desktop opens a local copy in
+     * the system player instead). Receives the player request and must dispose everything it opens.
+     */
+    val mediaPlayer: (@androidx.compose.runtime.Composable (MediaRequest, androidx.compose.ui.Modifier) -> Unit)? = null,
 )
+
+/** What the in-app media player plays: a remote file read in ranges through [source]. */
+class MediaRequest(val name: String, val size: Long?, val source: RangeSource, val video: Boolean)
+
+/** Random-access reader of a remote file (backed by the engine's `read.*`); calls may block the caller's thread. */
+interface RangeSource {
+    /** Up to [length] bytes at [offset]; empty at/after the end; throws on failure. */
+    suspend fun read(offset: Long, length: Int): ByteArray
+    suspend fun close()
+}
 
 /**
  * Makes the platform's default locale [languageTag] so that localized resources resolve in it

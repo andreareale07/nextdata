@@ -6,4 +6,7 @@
         <item quantity="one">%d trasferimento in corso</item>
         <item quantity="other">%d trasferimenti in corso</item>
     </plurals>
+    <string name="media_play">Riproduci</string>
+    <string name="media_pause">Pausa</string>
+    <string name="media_error">Questo file non può essere riprodotto dal server. Aprilo con un\'altra app.</string>
 </resources>

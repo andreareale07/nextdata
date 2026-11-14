@@ -89,6 +89,8 @@ data class AppSettings(
     val askDownloadLocation: Boolean = true,
     val navWidthDp: Int = 300,
     val detailsOpen: Boolean = false,
+    /** Upload changes made by other apps as soon as they are saved (otherwise ask first). */
+    val autoSaveExternal: Boolean = true,
     /** profile id -> last visited folder ref (opaque). */
     val lastRefs: Map<String, String> = emptyMap(),
     val recents: List<RecentFolder> = emptyList(),
@@ -106,6 +108,7 @@ data class AppSettings(
         m[KEY_ASK_DL] = JsonPrimitive(askDownloadLocation)
         m[KEY_NAV_W] = JsonPrimitive(navWidthDp)
         m[KEY_DETAILS] = JsonPrimitive(detailsOpen)
+        m[KEY_AUTOSAVE] = JsonPrimitive(autoSaveExternal)
         m[KEY_LAST_REFS] = JsonObject(lastRefs.mapValues { JsonPrimitive(it.value) })
         m[KEY_RECENTS] = JsonArray(recents.map {
             JsonObject(mapOf("p" to JsonPrimitive(it.profileId), "r" to JsonPrimitive(it.ref), "n" to JsonPrimitive(it.name)))
@@ -124,6 +127,7 @@ data class AppSettings(
         const val KEY_ASK_DL = "ask_download_location"
         const val KEY_NAV_W = "nav_width_dp"
         const val KEY_DETAILS = "details_open"
+        const val KEY_AUTOSAVE = "auto_save_external"
         const val KEY_LAST_REFS = "last_refs"
         const val KEY_RECENTS = "recents"
         const val MAX_RECENTS = 8
@@ -148,6 +152,7 @@ data class AppSettings(
                 askDownloadLocation = s(KEY_ASK_DL)?.toBooleanStrictOrNull() ?: true,
                 navWidthDp = s(KEY_NAV_W)?.toIntOrNull()?.coerceIn(200, 480) ?: 300,
                 detailsOpen = s(KEY_DETAILS)?.toBooleanStrictOrNull() ?: false,
+                autoSaveExternal = s(KEY_AUTOSAVE)?.toBooleanStrictOrNull() ?: true,
                 lastRefs = last,
                 recents = recents,
                 raw = raw,

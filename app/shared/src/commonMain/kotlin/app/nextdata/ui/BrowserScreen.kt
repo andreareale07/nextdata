@@ -119,7 +119,7 @@ fun BrowserScreen(
     LaunchedEffect(dialogOpen) { if (!dialogOpen) runCatching { rootFocus.requestFocus() } }
 
     fun openEntry(e: Entry) {
-        if (e.kind == EntryKind.DIR || e.kind == EntryKind.SYMLINK) vm.open(e.ref) else vm.download(listOf(e))
+        if (e.kind == EntryKind.DIR || e.kind == EntryKind.SYMLINK) vm.open(e.ref) else vm.openFile(e)
     }
 
     fun toggleDetails() = controller.settings.update { it.copy(detailsOpen = !it.detailsOpen) }
