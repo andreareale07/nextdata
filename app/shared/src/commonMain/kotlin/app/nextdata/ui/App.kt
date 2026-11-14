@@ -55,6 +55,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -171,7 +172,14 @@ private fun Shell(controller: AppController) {
                     onDrag = { dx -> navWidth = (navWidth + with(density) { dx.toDp().value.toInt() }).coerceIn(220, 460) },
                     onDone = { controller.settings.update { it.copy(navWidthDp = navWidth) } },
                 )
+                val editorRequest by controller.profileEditor.collectAsState()
+                LaunchedEffect(screen, browser?.profile?.id) { controller.closeProfileEditor() }
                 Box(Modifier.weight(1f).fillMaxHeight()) {
+                    val req = editorRequest
+                    if (req != null) {
+                        key(req) { ProfileEditorPage(controller, req.profile, onDismiss = controller::closeProfileEditor) }
+                        return@Box
+                    }
                     Crossfade(screen, animationSpec = tween(motionMs(160)), label = "content") { s ->
                         when {
                             s == Screen.Settings -> SettingsScreen(controller, onBack = { controller.back() })
@@ -199,21 +207,49 @@ private fun Shell(controller: AppController) {
         } else {
             // Single pane: forward navigation slides in from the end, back slides out (predictive back friendly).
             val dur = motionMs(200)
-            AnimatedContent(
-                targetState = screen,
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    val d = dur
-                    (slideInHorizontally(tween(d)) { w -> if (forward) w / 6 else -w / 6 } + fadeIn(tween(d))) togetherWith
-                        (slideOutHorizontally(tween(d)) { w -> if (forward) -w / 6 else w / 6 } + fadeOut(tween(d)))
-                },
-                label = "screen",
-            ) { s ->
-                when {
-                    s == Screen.Settings -> SettingsScreen(controller, onBack = { controller.back() })
-                    s == Screen.Transfers -> TransfersScreen(controller, onBack = { controller.back() })
-                    s == Screen.Browser && browser != null -> BrowserScreen(controller, browser!!, compact = true)
-                    else -> ProfilesScreen(controller)
+            val editorRequest by controller.profileEditor.collectAsState()
+            val transfers by controller.transfers.items.collectAsState()
+            LaunchedEffect(screen, browser?.profile?.id) { controller.closeProfileEditor() }
+            // Disconnecting clears `browser` at once, while the browser screen is still sliding out: keep drawing the
+            // last one for the exit animation, otherwise the outgoing page flips to a second copy of Profiles (a visible jump).
+            var lastBrowser by remember { mutableStateOf(browser) }
+            LaunchedEffect(browser) { if (browser != null) lastBrowser = browser }
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        AnimatedContent(
+                            targetState = screen,
+                            transitionSpec = {
+                                val forward = targetState.ordinal > initialState.ordinal
+                                val d = dur
+                                (slideInHorizontally(tween(d)) { w -> if (forward) w / 6 else -w / 6 } + fadeIn(tween(d))) togetherWith
+                                    (slideOutHorizontally(tween(d)) { w -> if (forward) -w / 6 else w / 6 } + fadeOut(tween(d)))
+                            },
+                            label = "screen",
+                        ) { s ->
+                            when {
+                                s == Screen.Settings -> SettingsScreen(controller, onBack = { controller.back() })
+                                s == Screen.Transfers -> Box(Modifier.fillMaxSize().horizontalSwipe(onRight = { controller.switchTab(Screen.Profiles) })) {
+                                    TransfersScreen(controller, onBack = { controller.back() })
+                                }
+                                s == Screen.Browser && (browser ?: lastBrowser) != null -> BrowserScreen(controller, (browser ?: lastBrowser)!!, compact = true)
+                                else -> Box(Modifier.fillMaxSize().horizontalSwipe(onLeft = { controller.switchTab(Screen.Transfers) })) {
+                                    ProfilesScreen(controller)
+                                }
+                            }
+                        }
+                    }
+                    AnimatedVisibility(
+                        screen in PhoneTabs,
+                        enter = expandVertically(tween(motionMs(200))) + fadeIn(tween(motionMs(200))),
+                        exit = shrinkVertically(tween(motionMs(160))) + fadeOut(tween(motionMs(160))),
+                    ) {
+                        PhoneNavBar(screen, transfers.count { it.status.isActive }, controller::switchTab)
+                    }
+                }
+                // the editor covers the whole screen, bottom bar included
+                editorRequest?.let { req ->
+                    key(req) { ProfileEditorDialog(controller, req.profile, onDismiss = controller::closeProfileEditor) }
                 }
             }
         }

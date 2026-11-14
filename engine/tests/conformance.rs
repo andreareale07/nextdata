@@ -275,8 +275,11 @@ fn export_import_roundtrip_and_hostile_input() {
 #[test]
 fn policy_and_disabled_protocols() {
     let h = harness();
-    let smb = save_profile(&h, json!({"name":"NAS","protocol":"smb","host":"10.0.0.2","username":"u"}), json!(null));
-    assert_eq!(h.code("session.connect", json!({"profile_id": smb})), "PROTOCOL_DISABLED");
+    #[cfg(not(feature = "smb"))]
+    {
+        let smb = save_profile(&h, json!({"name":"NAS","protocol":"smb","host":"10.0.0.2","username":"u"}), json!(null));
+        assert_eq!(h.code("session.connect", json!({"profile_id": smb})), "PROTOCOL_DISABLED");
+    }
     let dav = save_profile(&h, json!({"name":"Dav","protocol":"webdav","host":"example.com","username":"u","tls":false,"auth":"password"}), json!({"password":"x"}));
     assert_eq!(h.code("session.connect", json!({"profile_id": dav})), "POLICY_DENIED");
     assert_eq!(h.code("profiles.save", json!({"profile":{"name":"x","protocol":"ftp","host":"h"}})), "INVALID_ARGUMENT");
@@ -332,6 +335,54 @@ fn sftp_conformance_and_host_key_policy() {
     let bad = save_profile(&h, json!({"name":"bad","protocol":"sftp","host":p[0],"port":p[1].parse::<u32>().unwrap(),"username":p[2],"auth":"password"}), json!({"password":"definitely-wrong"}));
     // pin same server for the new profile first
     assert_eq!(h.code("session.connect", json!({"profile_id": bad})), "AUTH_FAILED");
+}
+
+/// SMB (feature `smb`). ND_TEST_SMB = host|port|share|user|password (infra/test-env/run-smb-tests.ps1).
+/// ND_TEST_SMB_EXPECT=<ERROR_CODE> => the server is deliberately weaker than required and the
+/// connection must be refused with that code (no conformance run).
+#[cfg(feature = "smb")]
+#[test]
+fn smb_conformance_and_security_policy() {
+    let Some(p) = external("ND_TEST_SMB") else { return };
+    let h = harness();
+    let relaxed = std::env::var("ND_TEST_SMB_MODE").map(|m| m == "relaxed").unwrap_or(false);
+    let prof = json!({"name":"SMB","protocol":"smb","host":p[0],"port":p[1].parse::<u32>().unwrap(),"share":p[2],"username":p[3],"auth":"password","smb_mode": if relaxed {"relaxed"} else {"strict"}});
+    let pid = save_profile(&h, prof, json!({"password": p[4]}));
+    if let Ok(expect) = std::env::var("ND_TEST_SMB_EXPECT") {
+        assert_eq!(h.code("session.connect", json!({"profile_id": pid})), expect);
+        return;
+    }
+    conformance(&h, &pid, "smb");
+    // wrong password
+    let bad = save_profile(&h, json!({"name":"bad","protocol":"smb","host":p[0],"port":p[1].parse::<u32>().unwrap(),"share":p[2],"username":p[3],"auth":"password"}), json!({"password":"definitely-wrong"}));
+    assert_eq!(h.code("session.connect", json!({"profile_id": bad})), "AUTH_FAILED");
+    // names a Windows server would treat specially are never sent (reserved device names, NTFS alternate streams, backslash)
+    let c = h.ok("session.connect", json!({"profile_id": pid}));
+    let (s, home) = (c["session"].as_str().unwrap().to_string(), c["home_ref"].as_str().unwrap().to_string());
+    for evil in ["CON", "nul.txt", "a:stream", "a\\b", "trailing.", "q?", "x*"] {
+        assert_eq!(h.code("session.mkdir", json!({"session": s, "parent_ref": home, "name": evil})), "POLICY_DENIED", "{evil}");
+    }
+    h.ok("session.close", json!({"session": s}));
+    // unknown share
+    let noshare = save_profile(&h, json!({"name":"ns","protocol":"smb","host":p[0],"port":p[1].parse::<u32>().unwrap(),"share":"nonexistent","username":p[3],"auth":"password"}), json!({"password": p[4]}));
+    assert_eq!(h.code("session.connect", json!({"profile_id": noshare})), "NOT_FOUND");
+}
+
+/// No server needed: public destinations and invalid profiles are refused before any connection.
+#[cfg(feature = "smb")]
+#[test]
+fn smb_policy_refusals() {
+    let h = harness();
+    let public = save_profile(&h, json!({"name":"pub","protocol":"smb","host":"8.8.8.8","share":"s","username":"u","auth":"password"}), json!({"password":"x"}));
+    assert_eq!(h.code("session.connect", json!({"profile_id": public})), "POLICY_DENIED");
+    let public6 = save_profile(&h, json!({"name":"pub6","protocol":"smb","host":"2001:4860:4860::8888","share":"s","username":"u","auth":"password"}), json!({"password":"x"}));
+    assert_eq!(h.code("session.connect", json!({"profile_id": public6})), "POLICY_DENIED");
+    let noshare = save_profile(&h, json!({"name":"x","protocol":"smb","host":"10.0.0.2","share":"","username":"u","auth":"password"}), json!({"password":"x"}));
+    assert_eq!(h.code("session.connect", json!({"profile_id": noshare})), "INVALID_ARGUMENT");
+    let slash = save_profile(&h, json!({"name":"y","protocol":"smb","host":"10.0.0.2","share":"a\\b","username":"u","auth":"password"}), json!({"password":"x"}));
+    assert_eq!(h.code("session.connect", json!({"profile_id": slash})), "INVALID_ARGUMENT");
+    let badmode = save_profile(&h, json!({"name":"z","protocol":"smb","host":"10.0.0.2","share":"s","smb_mode":"none","username":"u","auth":"password"}), json!({"password":"x"}));
+    assert_eq!(h.code("session.connect", json!({"profile_id": badmode})), "INVALID_ARGUMENT");
 }
 
 #[test]

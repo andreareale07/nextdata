@@ -36,9 +36,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.nextdata.i18n.errorText
+import app.nextdata.platform.PlatformKind
 import app.nextdata.i18n.protocolReasonText
 import app.nextdata.protocol.AuthKind
 import app.nextdata.protocol.ErrInfo
@@ -46,6 +48,7 @@ import app.nextdata.protocol.Profile
 import app.nextdata.protocol.ProfileSecrets
 import app.nextdata.protocol.ProtocolId
 import app.nextdata.protocol.S3Config
+import app.nextdata.protocol.SmbMode
 import app.nextdata.shared.resources.*
 import app.nextdata.state.AppController
 import app.nextdata.state.FieldIssue
@@ -55,6 +58,8 @@ import app.nextdata.state.ProfileValidation
 import app.nextdata.state.ProfileVisuals
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
+
+private const val S3_DEFAULT_REGION = "us-east-1"
 
 private sealed interface TestState {
     data object Idle : TestState
@@ -74,6 +79,7 @@ private fun issueText(issue: FieldIssue): String = stringResource(
         FieldIssue.BucketInvalid -> Res.string.issue_bucket_invalid
         FieldIssue.NameTooLong -> Res.string.issue_name_long
         FieldIssue.BasePathRelative -> Res.string.issue_base_path
+        FieldIssue.ShareInvalid -> Res.string.issue_share_invalid
     },
 )
 
@@ -90,9 +96,18 @@ private fun protocolBlurb(id: String) = when (id) {
  * form. Fields are validated as you type, and "Test connection" saves the profile and opens/closes a session.
  * Secrets live only in this composable's state until `profiles.save`; they are never read back.
  */
+@Composable
+fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss: () -> Unit) =
+    ProfileEditorForm(controller, initial, onDismiss, page = false)
+
+/** Wide layouts: the same editor as one compact page in the content area (no dialog, no wizard, no scrolling at normal sizes). */
+@Composable
+fun ProfileEditorPage(controller: AppController, initial: Profile?, onDismiss: () -> Unit) =
+    ProfileEditorForm(controller, initial, onDismiss, page = true)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss: () -> Unit) {
+private fun ProfileEditorForm(controller: AppController, initial: Profile?, onDismiss: () -> Unit, page: Boolean) {
     val profilesState by controller.profiles.state.collectAsState()
     val scope = rememberCoroutineScope()
     val editing = initial != null
@@ -113,7 +128,11 @@ fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss:
     var bucket by remember { mutableStateOf(initial?.s3?.bucket.orEmpty()) }
     var region by remember { mutableStateOf(initial?.s3?.region.orEmpty()) }
     var accessKey by remember { mutableStateOf(initial?.s3?.accessKey.orEmpty()) }
-    var pathStyle by remember { mutableStateOf(initial?.s3?.pathStyle ?: false) }
+    var pathStyle by remember { mutableStateOf(initial?.s3?.pathStyle ?: true) }
+    var share by remember { mutableStateOf(initial?.share.orEmpty()) }
+    var smbMode by remember { mutableStateOf(initial?.smbMode?.takeIf { it.isNotEmpty() } ?: SmbMode.STRICT) }
+    // page only: "Amazon S3" (default endpoint, virtual-hosted) vs "own server" (custom host, path-style)
+    var s3Amazon by remember { mutableStateOf(initial?.s3 != null && initial.host.isEmpty()) }
 
     var password by remember { mutableStateOf("") }
     var privateKey by remember { mutableStateOf("") }
@@ -130,16 +149,20 @@ fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss:
     val selectedInfo = offered.firstOrNull { it.id == protocol }
     val unavailable = selectedInfo != null && !selectedInfo.enabled
     val isS3 = protocol == ProtocolId.S3
+    val isSmb = protocol == ProtocolId.SMB
     val keepSecretHint = editing && initial?.hasSecret == true
 
     // live validation: format problems show as you type, "required" only after a Next/Save attempt
     fun visible(i: FieldIssue?): FieldIssue? = if (i == FieldIssue.Required && !attempted) null else i
     val nameIssue = visible(ProfileValidation.name(name))
-    val hostIssue = visible(ProfileValidation.host(host, required = !isS3))
+    val hostRequired = if (page && isS3) !s3Amazon else !isS3
+    val hostIssue = visible(ProfileValidation.host(host, required = hostRequired))
     val portIssue = ProfileValidation.port(port)
     val bucketIssue = if (isS3) visible(ProfileValidation.bucket(bucket)) else null
-    val serverValid = ProfileValidation.name(name) == null && ProfileValidation.host(host, !isS3) == null &&
-        ProfileValidation.port(port) == null && (!isS3 || ProfileValidation.bucket(bucket) == null)
+    val shareIssue = if (isSmb) visible(ProfileValidation.share(share)) else null
+    val serverValid = ProfileValidation.name(name) == null && ProfileValidation.host(host, hostRequired) == null &&
+        ProfileValidation.port(port) == null && (!isS3 || ProfileValidation.bucket(bucket) == null) &&
+        (!isSmb || ProfileValidation.share(share) == null)
 
     fun buildProfile(): Profile {
         val effectiveAuth = when (protocol) {
@@ -151,13 +174,15 @@ fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss:
             id = savedId,
             name = name.trim(),
             protocol = protocol,
-            host = host.trim(),
-            port = port.toIntOrNull() ?: 0,
+            host = if (page && isS3 && s3Amazon) "" else host.trim(),
+            port = if (page && isS3 && s3Amazon) 0 else port.toIntOrNull() ?: 0,
             username = if (isS3) "" else username.trim(),
             auth = effectiveAuth,
             basePath = basePath.trim(),
             tls = if (ProfileVisuals.hasTlsSwitch(protocol)) tls else false,
-            s3 = if (isS3) S3Config(bucket.trim(), region.trim(), accessKey.trim(), pathStyle) else null,
+            share = if (isSmb) share.trim() else "",
+            smbMode = if (isSmb) smbMode else "",
+            s3 = if (isS3) S3Config(bucket.trim(), region.trim(), accessKey.trim(), if (page && s3Amazon) false else pathStyle) else null,
             hasSecret = initial?.hasSecret ?: false,
             color = color,
         )
@@ -223,7 +248,262 @@ fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss:
 
     val stepTitles = listOf(Res.string.wizard_step_protocol, Res.string.wizard_step_server, Res.string.wizard_step_access)
 
-    Dialog(onDismissRequest = { if (!saving && test != TestState.Running) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    if (page) {
+        val tight = Modifier.fillMaxWidth()
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onDismiss, enabled = !saving && test != TestState.Running) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(Res.string.profiles_title))
+                    }
+                    Text(
+                        stringResource(if (editing) Res.string.profile_edit_title else Res.string.profile_new_title),
+                        style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() },
+                    )
+                }
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    Column(
+                        Modifier.widthIn(max = 760.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        // name + protocol
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                            OutlinedTextField(
+                                name, { name = it; test = TestState.Idle }, singleLine = true, isError = nameIssue != null,
+                                label = { Text(stringResource(Res.string.field_name)) },
+                                supportingText = nameIssue?.let { i -> ({ Text(issueText(i)) }) },
+                                modifier = Modifier.weight(1f).focusRequester(nameFocus),
+                            )
+                            Column(Modifier.weight(1.2f)) {
+                                Text(stringResource(Res.string.field_protocol), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                    offered.forEach { info ->
+                                        FilterChip(
+                                            selected = protocol == info.id, enabled = info.enabled,
+                                            onClick = { protocol = info.id; error = null; test = TestState.Idle },
+                                            label = { Text(stringResource(protocolLabelRes(info.id))) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (unavailable) StatusBanner(BannerKind.Error, protocolReasonText(selectedInfo?.reasonCode))
+
+                        if (isS3) {
+                            Text(stringResource(Res.string.field_s3_preset), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FilterChip(
+                                    selected = s3Amazon,
+                                    onClick = { s3Amazon = true; pathStyle = false; tls = true; test = TestState.Idle },
+                                    label = { Text(stringResource(Res.string.s3_preset_amazon)) },
+                                )
+                                FilterChip(
+                                    selected = !s3Amazon,
+                                    onClick = { s3Amazon = false; pathStyle = true; test = TestState.Idle },
+                                    label = { Text(stringResource(Res.string.s3_preset_custom)) },
+                                )
+                            }
+                        }
+
+                        // server row
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                            if (!(isS3 && s3Amazon)) {
+                                OutlinedTextField(
+                                    host, { host = it; test = TestState.Idle }, singleLine = true, isError = hostIssue != null,
+                                    label = { Text(stringResource(if (isS3) Res.string.field_s3_endpoint else Res.string.field_host)) },
+                                    supportingText = hostIssue?.let { i ->
+                                        ({
+                                            Column {
+                                                Text(issueText(i))
+                                                if (i == FieldIssue.HostHasScheme || i == FieldIssue.HostHasPath) {
+                                                    TextButton(onClick = ::applyUrl, contentPadding = PaddingValues(0.dp)) { Text(stringResource(Res.string.action_fix_url)) }
+                                                }
+                                            }
+                                        })
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                    modifier = Modifier.weight(2f),
+                                )
+                                OutlinedTextField(
+                                    port, { port = it.filter(Char::isDigit).take(5); test = TestState.Idle }, singleLine = true, isError = portIssue != null,
+                                    label = { Text(stringResource(Res.string.field_port)) },
+                                    placeholder = { Text(ProfileValidation.defaultPortHint(protocol, tls).takeIf { it > 0 }?.toString().orEmpty()) },
+                                    supportingText = portIssue?.let { i -> ({ Text(issueText(i)) }) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (isS3) {
+                                OutlinedTextField(
+                                    region, { region = it; test = TestState.Idle }, singleLine = true,
+                                    label = { Text(stringResource(Res.string.field_s3_region)) },
+                                    placeholder = { Text(S3_DEFAULT_REGION) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+
+                        // access row(s)
+                        if (isS3) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                                OutlinedTextField(
+                                    bucket, { bucket = it; test = TestState.Idle }, singleLine = true, isError = bucketIssue != null,
+                                    label = { Text(stringResource(Res.string.field_s3_bucket)) },
+                                    supportingText = bucketIssue?.let { i -> ({ Text(issueText(i)) }) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                OutlinedTextField(
+                                    accessKey, { accessKey = it; test = TestState.Idle }, singleLine = true,
+                                    label = { Text(stringResource(Res.string.field_s3_access_key)) },
+                                    modifier = Modifier.weight(1f).focusRequester(accessFocus),
+                                )
+                                Box(Modifier.weight(1f)) {
+                                    SecretField(secretKey, { secretKey = it; test = TestState.Idle }, stringResource(Res.string.field_s3_secret_key), showSecrets, { showSecrets = !showSecrets }, keepSecretHint)
+                                }
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                                OutlinedTextField(
+                                    username, { username = it; test = TestState.Idle }, singleLine = true,
+                                    label = { Text(stringResource(Res.string.field_username)) },
+                                    modifier = Modifier.weight(1f).focusRequester(accessFocus),
+                                )
+                                val effective = if (protocol == ProtocolId.SFTP && auth == AuthKind.KEY) AuthKind.KEY else auth
+                                if (effective == AuthKind.PASSWORD) {
+                                    Box(Modifier.weight(1f)) {
+                                        SecretField(password, { password = it; test = TestState.Idle }, stringResource(Res.string.field_password), showSecrets, { showSecrets = !showSecrets }, keepSecretHint)
+                                    }
+                                } else Spacer(Modifier.weight(1f))
+                            }
+                            if (protocol == ProtocolId.SFTP || protocol == ProtocolId.WEBDAV || protocol == ProtocolId.FAKE) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(stringResource(Res.string.field_auth), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.width(6.dp))
+                                    if (protocol == ProtocolId.SFTP) {
+                                        FilterChip(auth != AuthKind.KEY, { auth = AuthKind.PASSWORD; test = TestState.Idle }, { Text(stringResource(Res.string.auth_password)) })
+                                        FilterChip(auth == AuthKind.KEY, { auth = AuthKind.KEY; test = TestState.Idle }, { Text(stringResource(Res.string.auth_key)) })
+                                    } else {
+                                        FilterChip(auth != AuthKind.NONE, { auth = AuthKind.PASSWORD; test = TestState.Idle }, { Text(stringResource(Res.string.auth_password)) })
+                                        FilterChip(auth == AuthKind.NONE, { auth = AuthKind.NONE; test = TestState.Idle }, { Text(stringResource(Res.string.auth_none)) })
+                                    }
+                                }
+                            }
+                            if (protocol == ProtocolId.SFTP && auth == AuthKind.KEY) {
+                                OutlinedTextField(
+                                    privateKey, { privateKey = it; test = TestState.Idle },
+                                    label = { Text(stringResource(Res.string.field_private_key)) },
+                                    supportingText = { Text(stringResource(if (keepSecretHint) Res.string.secret_keep_hint else Res.string.field_private_key_hint)) },
+                                    minLines = 2, maxLines = 4,
+                                    visualTransformation = if (showSecrets || privateKey.isEmpty()) VisualTransformation.None else PasswordVisualTransformation(),
+                                    modifier = tight,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedButton(onClick = {
+                                        scope.launch { controller.env.files.pickBytes(emptyList())?.let { privateKey = it.decodeToString() } }
+                                    }) { Text(stringResource(Res.string.action_load_key_file)) }
+                                    Box(Modifier.weight(1f)) {
+                                        SecretField(passphrase, { passphrase = it }, stringResource(Res.string.field_passphrase_optional), showSecrets, { showSecrets = !showSecrets }, false)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isSmb) {
+                            OutlinedTextField(
+                                share, { share = it; test = TestState.Idle }, singleLine = true, isError = shareIssue != null,
+                                label = { Text(stringResource(Res.string.field_smb_share)) },
+                                supportingText = { Text(shareIssue?.let { issueText(it) } ?: stringResource(Res.string.hint_smb_share)) },
+                                modifier = tight,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(Res.string.field_smb_security), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(6.dp))
+                                FilterChip(smbMode != SmbMode.RELAXED, { smbMode = SmbMode.STRICT; test = TestState.Idle }, { Text(stringResource(Res.string.smb_mode_strict)) })
+                                FilterChip(smbMode == SmbMode.RELAXED, { smbMode = SmbMode.RELAXED; test = TestState.Idle }, { Text(stringResource(Res.string.smb_mode_relaxed)) })
+                            }
+                            Text(
+                                stringResource(if (smbMode == SmbMode.RELAXED) Res.string.smb_mode_relaxed_desc else Res.string.smb_mode_strict_desc),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (smbMode == SmbMode.RELAXED) StatusBanner(BannerKind.Warning, stringResource(Res.string.smb_relaxed_warning))
+                        }
+
+                        // options row: base folder, TLS, path-style
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                basePath, { basePath = it; test = TestState.Idle }, singleLine = true,
+                                label = { Text(stringResource(Res.string.field_base_path)) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (ProfileVisuals.hasTlsSwitch(protocol)) {
+                                FilterChip(tls, { tls = !tls; test = TestState.Idle }, { Text(stringResource(Res.string.field_tls)) },
+                                    leadingIcon = if (tls) ({ Icon(Icons.Outlined.Check, null, Modifier.size(16.dp)) }) else null)
+                            }
+                            if (isS3 && !s3Amazon) {
+                                FilterChip(pathStyle, { pathStyle = !pathStyle; test = TestState.Idle }, { Text(stringResource(Res.string.field_s3_path_style)) },
+                                    leadingIcon = if (pathStyle) ({ Icon(Icons.Outlined.Check, null, Modifier.size(16.dp)) }) else null)
+                            }
+                        }
+                        if (ProfileVisuals.hasTlsSwitch(protocol) && !tls) StatusBanner(BannerKind.Warning, stringResource(Res.string.security_plain_warning))
+
+                        // colour
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(Res.string.field_color), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(4.dp))
+                            ProfileVisuals.palette.forEach { hex ->
+                                val c = Color((ProfileVisuals.parseColor(hex) ?: 0xFF475569L).toInt())
+                                val chosen = color.equals(hex, ignoreCase = true)
+                                Box(
+                                    Modifier.size(24.dp).clip(CircleShape).background(c)
+                                        .then(if (chosen) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
+                                        .semantics { contentDescription = hex; selected = chosen; role = Role.RadioButton }
+                                        .clickable { color = hex },
+                                    contentAlignment = Alignment.Center,
+                                ) { if (chosen) Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
+                            }
+                        }
+
+                        error?.let { StatusBanner(BannerKind.Error, errorText(it)) }
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                // result of the test, then the fixed action bar
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    (test as? TestState.Failed)?.let { t ->
+                        StatusBanner(BannerKind.Error, stringResource(Res.string.profile_test_failed, errorText(t.error)))
+                        if (isS3 && !s3Amazon && t.error.isConnectionLost() && !pathStyle) {
+                            TextButton(onClick = { pathStyle = true; runTest() }, contentPadding = PaddingValues(0.dp)) {
+                                Text(stringResource(Res.string.action_enable_path_style_retry))
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = ::runTest, enabled = test != TestState.Running && !saving && !unavailable) {
+                            if (test == TestState.Running) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Icon(Icons.Outlined.NetworkCheck, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(if (test == TestState.Running) Res.string.profile_test_running else Res.string.profile_test))
+                        }
+                        if (test == TestState.Ok) {
+                            Text(
+                                stringResource(Res.string.profile_test_ok), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.nd.success,
+                                modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                            )
+                        } else Spacer(Modifier.weight(1f))
+                        TextButton(onClick = onDismiss, enabled = !saving && test != TestState.Running) { Text(stringResource(Res.string.action_cancel)) }
+                        Button(onClick = ::save, enabled = !saving && !unavailable && test != TestState.Running) {
+                            Text(stringResource(if (saving) Res.string.action_saving else Res.string.action_save))
+                        }
+                    }
+                }
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { nameFocus.requestFocus() } }
+        return
+    }
+
+    DialogOrInline(inline = controller.env.kind == PlatformKind.Android, onDismiss = { if (!saving && test != TestState.Running) onDismiss() }) {
         BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.Center) {
             val full = maxWidth < 600.dp
             Surface(
@@ -329,6 +609,15 @@ fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss:
                                 keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                                 modifier = Modifier.fillMaxWidth(),
                             )
+                            if (isSmb) {
+                                OutlinedTextField(
+                                    share, { share = it; test = TestState.Idle }, singleLine = true, isError = shareIssue != null,
+                                    label = { Text(stringResource(Res.string.field_smb_share)) },
+                                    supportingText = { Text(shareIssue?.let { issueText(it) } ?: stringResource(Res.string.hint_smb_share)) },
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                             if (ProfileVisuals.hasTlsSwitch(protocol)) {
                                 SwitchRow(stringResource(Res.string.field_tls), stringResource(Res.string.field_tls_hint), tls) { tls = it; test = TestState.Idle }
                                 if (!tls) StatusBanner(BannerKind.Warning, stringResource(Res.string.security_plain_warning))
@@ -403,6 +692,13 @@ fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss:
                                     }) { Text(stringResource(Res.string.action_load_key_file)) }
                                     SecretField(passphrase, { passphrase = it }, stringResource(Res.string.field_passphrase_optional), showSecrets, { showSecrets = !showSecrets }, false)
                                 }
+                            }
+
+                            if (isSmb) {
+                                Text(stringResource(Res.string.field_smb_security), style = MaterialTheme.typography.labelLarge)
+                                AuthChoice(smbMode != SmbMode.RELAXED, stringResource(Res.string.smb_mode_strict) + " - " + stringResource(Res.string.smb_mode_strict_desc)) { smbMode = SmbMode.STRICT; test = TestState.Idle }
+                                AuthChoice(smbMode == SmbMode.RELAXED, stringResource(Res.string.smb_mode_relaxed) + " - " + stringResource(Res.string.smb_mode_relaxed_desc)) { smbMode = SmbMode.RELAXED; test = TestState.Idle }
+                                if (smbMode == SmbMode.RELAXED) StatusBanner(BannerKind.Warning, stringResource(Res.string.smb_relaxed_warning))
                             }
 
                             Text(stringResource(Res.string.field_color), style = MaterialTheme.typography.labelLarge)
@@ -485,6 +781,21 @@ fun ProfileEditorDialog(controller: AppController, initial: Profile?, onDismiss:
                 }
             }
         }
+    }
+}
+
+/**
+ * Touch devices show the editor as a full-screen layer inside the app window: a separate dialog window makes the
+ * keyboard and system-bar insets fight each other on some phones (the page jittered up and down).
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+private fun DialogOrInline(inline: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    if (inline) {
+        BackHandler(onBack = onDismiss)
+        Box(Modifier.fillMaxSize()) { content() }
+    } else {
+        Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) { content() }
     }
 }
 

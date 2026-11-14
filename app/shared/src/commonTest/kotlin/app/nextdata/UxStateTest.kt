@@ -64,7 +64,8 @@ class UxStateTest {
     fun lastFolderAndRecentsAreRememberedAndRestored() = runTest {
         val rig = Rig(this)
         rig.app.boot()
-        val p = rig.app.profiles.state.value.profiles.first { it.id == "p2" }
+        // a profile without a start folder: its last visited folder is restored
+        val p = rig.app.profiles.state.value.profiles.first { it.id == "p2" }.copy(basePath = "")
         rig.app.connect(p)
         advanceUntilIdle()
         val vm = assertNotNull(rig.app.browser.value)
@@ -78,6 +79,27 @@ class UxStateTest {
         rig.app.connect(p)
         advanceUntilIdle()
         assertEquals(dir.ref, rig.app.browser.value!!.state.value.ref)
+    }
+
+    @Test
+    fun configuredStartFolderWinsOverLastVisitedFolder() = runTest {
+        val rig = Rig(this)
+        rig.app.boot()
+        // p2 has a start folder: remembering another folder must not override it on the next connection
+        val p = rig.app.profiles.state.value.profiles.first { it.id == "p2" }
+        assertTrue(p.basePath.isNotBlank())
+        rig.app.connect(p)
+        advanceUntilIdle()
+        val vm = assertNotNull(rig.app.browser.value)
+        val home = vm.homeRef
+        val dir = vm.state.value.entries.first { it.kind == "dir" }
+        vm.open(dir.ref)
+        advanceUntilIdle()
+        assertEquals(dir.ref, rig.app.settings.state.value.lastRefs["p2"])
+        rig.app.disconnect()
+        rig.app.connect(p)
+        advanceUntilIdle()
+        assertEquals(home, rig.app.browser.value!!.state.value.ref)
     }
 
     @Test

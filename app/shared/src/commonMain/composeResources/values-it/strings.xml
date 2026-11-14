@@ -416,7 +416,7 @@
     <string name="protocol_blurb_sftp">Trasferimento file su Secure Shell. Server, NAS, host Linux.</string>
     <string name="protocol_blurb_webdav">Nextcloud, ownCloud e altri servizi WebDAV.</string>
     <string name="protocol_blurb_s3">Amazon S3 e storage a oggetti compatibili.</string>
-    <string name="protocol_blurb_smb">Condivisioni di rete Windows.</string>
+    <string name="protocol_blurb_smb">Condivisioni di rete Windows e Samba (NAS, OpenMediaVault).</string>
     <string name="protocol_blurb_fake">Dati dimostrativi in memoria, per le prove.</string>
     <string name="wizard_step_protocol">Protocollo</string>
     <string name="wizard_step_server">Server</string>
@@ -463,4 +463,22 @@
     <string name="theme_system">Segui il sistema</string>
     <string name="theme_light">Chiaro</string>
     <string name="theme_dark">Scuro</string>
+    <string name="field_s3_preset">Configurazione S3</string>
+    <string name="s3_preset_amazon">Amazon S3</string>
+    <string name="s3_preset_custom">Server proprio / MinIO</string>
+    <string name="action_enable_path_style_retry">Attiva path-style e riprova</string>
+    <string name="field_smb_share">Condivisione</string>
+    <string name="hint_smb_share">Il nome della cartella condivisa sul server, per esempio documenti.</string>
+    <string name="issue_share_invalid">Il nome di una condivisione non può contenere barre.</string>
+    <string name="field_smb_security">Sicurezza</string>
+    <string name="smb_mode_strict">Sicuro (consigliato)</string>
+    <string name="smb_mode_strict_desc">SMB 3.1.1, firmato e cifrato.</string>
+    <string name="smb_mode_relaxed">Compatibile</string>
+    <string name="smb_mode_relaxed_desc">SMB 3.1.1 firmato, senza cifratura.</string>
+    <string name="smb_relaxed_warning">I file viaggiano leggibili sulla rete: usa questa opzione solo su una rete di cui ti fidi. La firma impedisce comunque le modifiche.</string>
+    <string name="err_smb_public_host">SMB è consentito solo su reti private.</string>
+    <string name="err_smb_dialect">Il server non supporta SMB 3.1.1. Aggiorna le impostazioni del server.</string>
+    <string name="err_smb_negotiation">Il server e NextData non riescono ad accordarsi su una connessione sicura. Controlla la modalità di sicurezza.</string>
+    <string name="err_smb_name">Questo nome non è ammesso su una condivisione Windows.</string>
+    <string name="err_smb_encryption">Il server richiede la cifratura. Controlla la modalità di sicurezza e le impostazioni del server.</string>
 </resources>

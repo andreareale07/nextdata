@@ -105,6 +105,20 @@ class AppController(
         _editProfileRequested.value = null
     }
 
+    /** Wide layouts show the profile editor in the content area instead of a dialog; [profile] null = new profile. */
+    class ProfileEditorRequest(val profile: Profile?)
+
+    private val _profileEditor = MutableStateFlow<ProfileEditorRequest?>(null)
+    val profileEditor: StateFlow<ProfileEditorRequest?> = _profileEditor.asStateFlow()
+
+    fun openProfileEditor(profile: Profile?) {
+        _profileEditor.value = ProfileEditorRequest(profile)
+    }
+
+    fun closeProfileEditor() {
+        _profileEditor.value = null
+    }
+
     private val _about = MutableStateFlow(false)
     val aboutVisible: StateFlow<Boolean> = _about.asStateFlow()
 
@@ -161,6 +175,21 @@ class AppController(
         }
     }
 
+    /**
+     * Bottom-bar / swipe navigation between the top-level phone screens: Transfers and Settings replace each other
+     * instead of piling up, so "back" always leads to where the user came from (Profiles, or the open connection).
+     */
+    fun switchTab(target: Screen) {
+        if (target == Screen.Profiles) {
+            navigate(Screen.Profiles)
+            return
+        }
+        _screen.update { st ->
+            val base = st.dropLastWhile { it == Screen.Transfers || it == Screen.Settings }.ifEmpty { listOf(Screen.Profiles) }
+            base + target
+        }
+    }
+
     /** Handles a "back" gesture/key. Returns true if consumed. */
     fun back(): Boolean {
         val st = _screen.value
@@ -195,7 +224,9 @@ class AppController(
                 is Outcome.Success -> {
                     val vm = BrowserViewModel(
                         profile, r.value.session, r.value.homeRef, client, scope, settings.state, transfers, env.files,
-                        initialRef = settings.state.value.lastRefs[profile.id],
+                        // A start folder configured in the profile always wins; the last visited folder is restored
+                        // only for profiles without one (otherwise an old "last folder" sent users back to the root).
+                        initialRef = settings.state.value.lastRefs[profile.id].takeIf { profile.basePath.isBlank() },
                         askDownloadLocation = { settings.state.value.askDownloadLocation },
                         onLocation = { ref, name -> rememberLocation(profile.id, ref, name) },
                     )
@@ -315,6 +346,6 @@ class AppController(
 
     fun isProtocolUsable(profile: Profile): Boolean {
         val info = profiles.state.value.protocolInfo(profile.protocol)
-        return profile.protocol != ProtocolId.SMB && (info?.enabled ?: true)
+        return info?.enabled ?: (profile.protocol != ProtocolId.SMB)
     }
 }

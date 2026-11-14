@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import app.nextdata.engine.EngineClient
 import app.nextdata.i18n.errorText
@@ -222,79 +223,91 @@ fun FilterField(value: String, onChange: (String) -> Unit, modifier: Modifier = 
 
 // ======================================================================== phone bars
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Phone header: only the current folder (or the selection count). Every control lives in the bottom bar. */
 @Composable
-fun CompactTopBar(
+fun CompactHeader(title: String, selectedCount: Int) {
+    val selecting = selectedCount > 0
+    Surface(color = if (selecting) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
+        Text(
+            if (selecting) pluralStringResource(Res.plurals.selected_count, selectedCount, selectedCount) else title,
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 14.dp).semantics { heading() },
+        )
+    }
+}
+
+/** Phone bottom bar: back, sort, search, add and the overflow menu, all within thumb reach. */
+@Composable
+fun CompactBottomBar(
     controller: AppController,
     state: BrowserState,
     vm: BrowserViewModel,
-    showHidden: Boolean,
     viewMode: ViewMode,
     activeTransfers: Int,
-    scrollBehavior: TopAppBarScrollBehavior,
     onSearch: () -> Unit,
     onSecurity: () -> Unit,
+    onAdd: () -> Unit,
 ) {
     var overflow by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var places by remember { mutableStateOf(false) }
     val settings by controller.settings.state.collectAsState()
-    val title = if (state.canGoUp) state.breadcrumbs.lastOrNull()?.name ?: vm.profile.name else vm.profile.name
-    MediumTopAppBar(
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        navigationIcon = { NdIconButton(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(Res.string.action_back), { controller.back() }) },
-        scrollBehavior = scrollBehavior,
-        colors = TopAppBarDefaults.mediumTopAppBarColors(containerColor = MaterialTheme.colorScheme.surface, scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer),
-        actions = {
-            NdIconButton(Icons.Outlined.Search, stringResource(Res.string.action_search), onSearch)
-            Box {
-                NdIconButton(Icons.AutoMirrored.Outlined.Sort, stringResource(Res.string.sort_title), { sortMenu = true })
-                SortMenu(sortMenu, state, { sortMenu = false }, vm::setSort)
-            }
-            Box {
-                NdIconButton(Icons.Outlined.MoreVert, stringResource(Res.string.action_more), { overflow = true })
-                DropdownMenu(overflow, { overflow = false }) {
-                    DropdownMenuItem(text = { Text(stringResource(Res.string.action_refresh)) }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) }, onClick = { overflow = false; vm.refresh() })
-                    DropdownMenuItem(
-                        text = { Text(stringResource(if (viewMode == ViewMode.Grid) Res.string.view_list else Res.string.view_grid)) },
-                        leadingIcon = { Icon(if (viewMode == ViewMode.Grid) Icons.AutoMirrored.Outlined.ViewList else Icons.Outlined.GridView, null) },
-                        onClick = { overflow = false; controller.settings.update { it.copy(viewMode = if (viewMode == ViewMode.Grid) ViewMode.List else ViewMode.Grid) } },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(if (state.isFavoriteHere) Res.string.action_favorite_remove else Res.string.action_favorite_add)) },
-                        leadingIcon = { Icon(if (state.isFavoriteHere) Icons.Outlined.Star else Icons.Outlined.StarBorder, null) },
-                        onClick = { overflow = false; vm.toggleFavoriteHere() },
-                    )
-                    DropdownMenuItem(text = { Text(stringResource(Res.string.places_title)) }, leadingIcon = { Icon(Icons.Outlined.Bookmarks, null) }, onClick = { overflow = false; places = true })
-                    DropdownMenuItem(
-                        text = { Text(stringResource(Res.string.nav_transfers) + if (activeTransfers > 0) " ($activeTransfers)" else "") },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.CompareArrows, null) },
-                        onClick = { overflow = false; controller.navigate(Screen.Transfers) },
-                    )
-                    DropdownMenuItem(text = { Text(stringResource(Res.string.security_title)) }, leadingIcon = { Icon(Icons.Outlined.Lock, null) }, onClick = { overflow = false; onSecurity() })
-                    DropdownMenuItem(text = { Text(stringResource(Res.string.nav_settings)) }, leadingIcon = { Icon(Icons.Outlined.Settings, null) }, onClick = { overflow = false; controller.navigate(Screen.Settings) })
-                    DropdownMenuItem(text = { Text(stringResource(Res.string.action_disconnect)) }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Logout, null) }, onClick = { overflow = false; controller.disconnect() })
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                NdIconButton(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(Res.string.action_back), { controller.back() })
+                Box {
+                    NdIconButton(Icons.AutoMirrored.Outlined.Sort, stringResource(Res.string.sort_title), { sortMenu = true })
+                    SortMenu(sortMenu, state, { sortMenu = false }, vm::setSort)
                 }
-                PlacesMenu(places, state, settings.recents.filter { it.profileId == vm.profile.id }, { places = false }, vm)
+                NdIconButton(Icons.Outlined.Search, stringResource(Res.string.action_search), onSearch)
+                NdIconButton(Icons.Outlined.Add, stringResource(Res.string.action_add), onAdd)
+                Box {
+                    NdIconButton(Icons.Outlined.MoreVert, stringResource(Res.string.action_more), { overflow = true })
+                    DropdownMenu(overflow, { overflow = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.action_refresh)) }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) }, onClick = { overflow = false; vm.refresh() })
+                        DropdownMenuItem(
+                            text = { Text(stringResource(if (viewMode == ViewMode.Grid) Res.string.view_list else Res.string.view_grid)) },
+                            leadingIcon = { Icon(if (viewMode == ViewMode.Grid) Icons.AutoMirrored.Outlined.ViewList else Icons.Outlined.GridView, null) },
+                            onClick = { overflow = false; controller.settings.update { it.copy(viewMode = if (viewMode == ViewMode.Grid) ViewMode.List else ViewMode.Grid) } },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(if (state.isFavoriteHere) Res.string.action_favorite_remove else Res.string.action_favorite_add)) },
+                            leadingIcon = { Icon(if (state.isFavoriteHere) Icons.Outlined.Star else Icons.Outlined.StarBorder, null) },
+                            onClick = { overflow = false; vm.toggleFavoriteHere() },
+                        )
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.places_title)) }, leadingIcon = { Icon(Icons.Outlined.Bookmarks, null) }, onClick = { overflow = false; places = true })
+                        DropdownMenuItem(
+                            text = { Text(stringResource(Res.string.nav_transfers) + if (activeTransfers > 0) " ($activeTransfers)" else "") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.CompareArrows, null) },
+                            onClick = { overflow = false; controller.navigate(Screen.Transfers) },
+                        )
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.security_title)) }, leadingIcon = { Icon(Icons.Outlined.Lock, null) }, onClick = { overflow = false; onSecurity() })
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.nav_settings)) }, leadingIcon = { Icon(Icons.Outlined.Settings, null) }, onClick = { overflow = false; controller.navigate(Screen.Settings) })
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.action_disconnect)) }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Logout, null) }, onClick = { overflow = false; controller.disconnect() })
+                    }
+                    PlacesMenu(places, state, settings.recents.filter { it.profileId == vm.profile.id }, { places = false }, vm)
+                }
             }
-        },
-    )
+        }
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Bottom bar shown while files are selected. */
 @Composable
-fun SelectionTopBar(count: Int, selected: List<Entry>, vm: BrowserViewModel, visible: List<Entry>, onDelete: (List<Entry>) -> Unit, onRename: (Entry) -> Unit) {
-    TopAppBar(
-        title = { Text(pluralStringResource(Res.plurals.selected_count, count, count), style = MaterialTheme.typography.titleLarge) },
-        navigationIcon = { NdIconButton(Icons.Outlined.Close, stringResource(Res.string.action_clear_selection), vm::clearSelection) },
-        actions = {
+fun SelectionBottomBar(selected: List<Entry>, vm: BrowserViewModel, visible: List<Entry>, onDelete: (List<Entry>) -> Unit, onRename: (Entry) -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.primaryContainer) {
+        Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            NdIconButton(Icons.Outlined.Close, stringResource(Res.string.action_clear_selection), vm::clearSelection)
             NdIconButton(Icons.Outlined.SelectAll, stringResource(Res.string.action_select_all), { vm.selectAll(visible) })
             NdIconButton(Icons.Outlined.Download, stringResource(Res.string.action_download), { vm.download(selected) })
             if (selected.size == 1) NdIconButton(Icons.Outlined.DriveFileRenameOutline, stringResource(Res.string.action_rename), { onRename(selected.first()) })
             NdIconButton(Icons.Outlined.Delete, stringResource(Res.string.action_delete), { onDelete(selected) }, tint = MaterialTheme.colorScheme.error)
-        },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-    )
+        }
+    }
 }
 
 // ======================================================================== desktop command bar + address row

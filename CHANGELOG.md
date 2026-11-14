@@ -5,6 +5,13 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+### Aggiunto
+- Provider SMB (SMB 3.1.1, firmato e cifrato; modalità "Compatibile" senza cifratura, scelta per profilo), dietro la feature `smb` dell'engine: resta disattivato nelle build di rilascio finché il controllo di sicurezza (docs/smb-gate.md) non è completo.
+- Interfaccia: campi condivisione e sicurezza per i profili SMB; nuova barra in basso su telefono e pagina profilo compatta su desktop.
+
+### Corretto
+- Una cartella di partenza impostata nel profilo non viene più sostituita dall'ultima cartella visitata (riportava alla radice).
+
 ## [0.1.0-beta.1]
 
 Prima versione beta pubblica.

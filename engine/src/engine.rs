@@ -373,7 +373,7 @@ impl Inner {
                 {"id":"sftp","enabled":true},
                 {"id":"webdav","enabled":true},
                 {"id":"s3","enabled":true},
-                {"id":"smb","enabled":false,"reason_code":"SMB_GATE_NOT_PASSED"},
+                smb_protocol_entry(),
                 {"id":"fake","enabled":true}
             ]
         }))
@@ -597,6 +597,8 @@ impl Inner {
                 "sftp" => SftpProvider::connect(&profile, &secrets, trust.clone()).await?,
                 "webdav" => WebDavProvider::connect(&profile, &secrets, trust.clone()).await?,
                 "s3" => S3Provider::connect(&profile, &secrets, trust.clone()).await?,
+                #[cfg(feature = "smb")]
+                "smb" => crate::provider::smb::SmbProvider::connect(&profile, &secrets, trust.clone()).await?,
                 "fake" => FakeProvider::seeded(),
                 _ => return Err(NdError::new(Code::ProtocolDisabled).with("protocol", profile.protocol.clone())),
             };
@@ -790,4 +792,13 @@ impl OpTrust {
             s.save()
         })
     }
+}
+
+#[cfg(feature = "smb")]
+fn smb_protocol_entry() -> Value {
+    json!({"id":"smb","enabled":true})
+}
+#[cfg(not(feature = "smb"))]
+fn smb_protocol_entry() -> Value {
+    json!({"id":"smb","enabled":false,"reason_code":"SMB_GATE_NOT_PASSED"})
 }

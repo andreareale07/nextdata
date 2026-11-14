@@ -58,8 +58,16 @@ SERVER_ANOMALY, LIMIT_EXCEEDED, IMPORT_INVALID, PASSPHRASE_INVALID, NOT_INITIALI
 ```
 Profile { id, name, protocol:"sftp"|"webdav"|"s3"|"smb"|"fake", host, port:int|0(=default), username,
           auth:"password"|"key"|"none", base_path:"", tls:bool(webdav/s3: https),
-          s3?:{bucket, region, access_key, path_style:bool}, has_secret:bool, color?:string }
+          s3?:{bucket, region, access_key, path_style:bool}, share:"" (smb: nome della condivisione),
+          smb_mode:""|"strict"|"relaxed" (smb), has_secret:bool, color?:string }
 Entry   { name, ref, kind:"file"|"dir"|"symlink"|"other", size:int|null, mtime_ms:int|null, safe_local_name }
 ```
 `ref` è opaco: Kotlin non costruisce né analizza percorsi (usa `ref`, `parent_ref`, `breadcrumbs`).
 Nuovi nomi (mkdir/rename) passano come testo utente e il motore li valida (`INVALID_ARGUMENT`).
+
+## SMB (feature `smb` dell'engine; vedi docs/smb-gate.md e docs/adr/0001)
+- `Profile.share` obbligatorio (senza barre); `Profile.username` accetta `DOMINIO\utente`; `Profile.port` 0 = 445.
+- `smb_mode`: `strict` (predefinito: SMB 3.1.1, firmato e cifrato) o `relaxed` (3.1.1 firmato, senza cifratura; scelta esplicita dell'utente per profilo).
+- Policy: solo indirizzi privati, loopback e link-local, verificati sull'indirizzo risolto. `POLICY_DENIED` con `params.rule`: `smb_public_host`, `smb_dialect` (server senza 3.1.1), `smb_negotiation`, `smb_name` (nome non ammesso su una condivisione Windows).
+- `PERMISSION_DENIED` con `params.hint = "server_requires_encryption"` (solo profili `relaxed`): accesso negato, spesso perché il server impone la cifratura; la UI suggerisce di controllare la sicurezza.
+- Senza la feature `smb` l'engine riporta `protocols[smb].enabled=false` con `reason_code: SMB_GATE_NOT_PASSED` e risponde `PROTOCOL_DISABLED`.

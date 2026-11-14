@@ -4,7 +4,7 @@ import app.nextdata.protocol.ProtocolId
 
 /** Why a profile field is not acceptable (the UI maps each to a localized hint). */
 enum class FieldIssue {
-    Required, HostHasScheme, HostHasPath, HostInvalid, PortInvalid, BucketInvalid, NameTooLong, BasePathRelative
+    Required, HostHasScheme, HostHasPath, HostInvalid, PortInvalid, BucketInvalid, NameTooLong, BasePathRelative, ShareInvalid
 }
 
 /** Real-time, side-effect-free validation of the profile form. The engine remains the authority. */
@@ -50,6 +50,13 @@ object ProfileValidation {
         val ok = b.length in 3..63 && b.all { it in 'a'..'z' || it in '0'..'9' || it == '.' || it == '-' } &&
             b.first().isLetterOrDigit() && b.last().isLetterOrDigit() && !b.contains("..")
         return if (ok) null else FieldIssue.BucketInvalid
+    }
+
+    /** SMB share name: required, no slashes or control characters. */
+    fun share(v: String): FieldIssue? {
+        val s = v.trim()
+        if (s.isEmpty()) return FieldIssue.Required
+        return if (s.length > 80 || s.any { it == '/' || it == '\\' || it.isISOControl() }) FieldIssue.ShareInvalid else null
     }
 
     fun basePath(v: String): FieldIssue? = null
