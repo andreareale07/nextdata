@@ -80,6 +80,8 @@ data class BrowserState(
     val busy: Boolean = false,
     /** Picked files are being copied/prepared before the upload is queued. */
     val preparing: Boolean = false,
+    /** "Files and folders" upload being put together: number of items added so far; null = not open. */
+    val basket: Int? = null,
     val message: UiMessage? = null,
 ) {
     val isFavoriteHere: Boolean get() = ref != null && favorites.any { it.ref == ref }
@@ -373,6 +375,45 @@ class BrowserViewModel(
                 _state.update { it.copy(preparing = false) }
             }
         }
+    }
+
+    // ---- mixed upload: the system pickers choose either files or one folder, so the user collects several rounds
+
+    private var basketSel: UploadSelection? = null
+
+    fun basketOpen() = _state.update { it.copy(basket = basketSel?.paths?.size ?: 0) }
+
+    fun basketAddFiles() = basketAdd { files.pickUploadFiles(onPicked = { _state.update { it.copy(preparing = true) } }) }
+
+    fun basketAddFolder() = basketAdd { files.pickUploadFolder(onPicked = { _state.update { it.copy(preparing = true) } }) }
+
+    private fun basketAdd(pick: suspend () -> UploadSelection?) {
+        scope.launch {
+            try {
+                val add = pick() ?: return@launch
+                val cur = basketSel
+                basketSel = if (cur == null) add else UploadSelection(
+                    cur.paths + add.paths,
+                    if (cur.totalBytes != null && add.totalBytes != null) cur.totalBytes + add.totalBytes else null,
+                ) { cur.release(); add.release() }
+                _state.update { it.copy(basket = basketSel?.paths?.size ?: 0) }
+            } finally {
+                _state.update { it.copy(preparing = false) }
+            }
+        }
+    }
+
+    fun basketUpload() {
+        val sel = basketSel
+        basketSel = null
+        _state.update { it.copy(basket = null) }
+        if (sel != null) queueUpload(sel)
+    }
+
+    fun basketCancel() {
+        basketSel?.release()
+        basketSel = null
+        _state.update { it.copy(basket = null) }
     }
 
     /** Upload of already-known local paths (drag & drop). */

@@ -461,6 +461,16 @@
     <string name="action_reconnect">Riconnetti</string>
     <string name="hint_s3_path_style">Suggerimento: con un server compatibile S3 (non Amazon) attiva “Indirizzamento path-style” nel passo Server.</string>
     <string name="upload_preparing">Preparazione dei file selezionati…</string>
+    <string name="action_upload_mixed">Carica file e cartelle…</string>
+    <string name="basket_title">File e cartelle da caricare</string>
+    <string name="basket_hint">Aggiungi file e cartelle in più passaggi, poi carica tutto insieme.</string>
+    <plurals name="basket_count">
+        <item quantity="one">%1$d elemento selezionato</item>
+        <item quantity="other">%1$d elementi selezionati</item>
+    </plurals>
+    <string name="basket_add_files">Aggiungi file…</string>
+    <string name="basket_add_folder">Aggiungi una cartella…</string>
+    <string name="basket_upload">Carica</string>
     <string name="connect_hint_trust_timeout">La conferma ha richiesto troppo tempo e la connessione è scaduta. Riprova e conferma entro circa 20 secondi.</string>
     <string name="sort_by">Ordina per %1$s</string>
     <string name="settings_theme">Tema</string>

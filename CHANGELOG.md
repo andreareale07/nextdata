@@ -5,12 +5,28 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+## [0.1.0-beta.2]
+
+Novità rispetto a 0.1.0-beta.1: aprire e modificare i file remoti senza scaricarli, caricamento di file e cartelle insieme, meno domande quando si guarda un file con un'altra app.
+
 ### Aggiunto
-- Provider SMB (SMB 3.1.1, firmato e cifrato; modalità "Compatibile" senza cifratura, scelta per profilo), dietro la feature `smb` dell'engine: resta disattivato nelle build di rilascio finché il controllo di sicurezza (docs/smb-gate.md) non è completo.
+- **Aprire senza scaricare**: un tocco su un file lo apre direttamente. Viewer interni per immagini (con scorrimento tra le immagini della cartella), testo (con modifica e salvataggio), PDF (Android) e audio/video letti a blocchi dal server (Android). Gli altri tipi si aprono con un'altra app; "Scarica" resta nel menu ⋮.
+- **Modificare con altre app e salvare sul server**: le modifiche fatte in un'altra app vengono rilevate dal contenuto e caricate con verifica; nessun file viene sovrascritto in silenzio (conflitti, copia di recupero, giornale cifrato per i salvataggi interrotti). Schermata "Modifiche da salvare" nelle Impostazioni e opzione "Carica le modifiche fatte in altre app".
+- **Caricamento di file e cartelle insieme** (menu "+" e menu di caricamento): si aggiungono file e cartelle in più passaggi e si carica tutto in un unico trasferimento. Utile su telefono, dove il selettore di sistema sceglie o file o una cartella.
+- Provider SMB (SMB 3.1.1, firmato e cifrato; modalità "Compatibile" senza cifratura, scelta per profilo), dietro la feature `smb` del motore: **resta disattivato nelle build di rilascio** finché il controllo di sicurezza (docs/smb-gate.md) non è completo.
 - Interfaccia: campi condivisione e sicurezza per i profili SMB; nuova barra in basso su telefono e pagina profilo compatta su desktop.
+
+### Modificato
+- Aprire un file con un'altra app per guardarlo non genera più, a ogni ritorno nell'app, la domanda "nessuna modifica rilevata, vuoi importare una versione?". La domanda compare solo se scegli esplicitamente di modificare il file dal viewer, e una volta sola per apertura. Le modifiche vere vengono comunque rilevate e salvate.
+- Il trascinamento (drag & drop) su desktop non blocca più la finestra con cartelle grandi e non carica due volte un file già contenuto in una cartella trascinata.
+- Aggiornate le dipendenze e le azioni della pipeline di rilascio.
 
 ### Corretto
 - Una cartella di partenza impostata nel profilo non viene più sostituita dall'ultima cartella visitata (riportava alla radice).
+
+### Noto
+- Non ancora collaudati su dispositivi reali: video Android, app esterne reali, SMB su server reale (disattivato nelle build), interruzioni di rete.
+- Gli installer Windows non sono ancora firmati (Authenticode).
 
 ## [0.1.0-beta.1]
 
@@ -33,5 +49,6 @@ Prima versione beta pubblica.
 - SMB disabilitato in attesa del relativo controllo di sicurezza.
 - Gli installer Windows non sono ancora firmati.
 
-[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.1...HEAD
+[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/andreareale07/nextdata/releases/tag/v0.1.0-beta.1

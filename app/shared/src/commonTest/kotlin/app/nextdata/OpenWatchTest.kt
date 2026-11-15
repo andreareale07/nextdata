@@ -27,6 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Files double whose folder listing is driven by the test (an app "saving" = the listing changes). */
@@ -141,11 +142,24 @@ class OpenWatchTest {
     @Test
     fun backFromTheOtherAppWithoutChangesExplainsHowToImport() = runTest {
         val rig = Rig(this)
-        opened(rig)
+        val (vm, _) = opened(rig)
+        // just looking at a file (tap in the list): coming back never asks anything
+        rig.app.opener.onForeground()
+        advanceTimeBy(OpenManager.POLL_MS + 10)
+        runCurrent()
+        assertNull(rig.app.opener.message.value)
+        // the user chose to edit it in another app: asked once
+        val entry = vm.state.value.entries.first { it.name == "archive.zip" }
+        rig.app.opener.openExternally(vm.sessionId, entry, assertNotNull(rig.app.opener.doc.value), edit = true, hintIfUnchanged = true)
         rig.app.opener.onForeground()
         advanceTimeBy(OpenManager.POLL_MS + 10)
         runCurrent()
         val m = assertIs<OpenMessage.NoChangeDetected>(rig.app.opener.message.value)
+        rig.app.opener.consumeMessage()
+        rig.app.opener.onForeground()
+        advanceTimeBy(OpenManager.POLL_MS + 10)
+        runCurrent()
+        assertNull(rig.app.opener.message.value, "not asked again on every return")
         assertTrue(rig.engine.savedResolutions.isEmpty())
         // the user imports the version the app exported somewhere else
         rig.files.picked = "C:/Users/x/Downloads/readme-edited.md"

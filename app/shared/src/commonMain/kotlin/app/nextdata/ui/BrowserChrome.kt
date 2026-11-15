@@ -353,6 +353,7 @@ fun DesktopCommandBar(
                     DropdownMenu(uploadMenu, { uploadMenu = false }) {
                         DropdownMenuItem(text = { Text(stringResource(Res.string.action_upload_files)) }, leadingIcon = { Icon(Icons.Outlined.UploadFile, null) }, onClick = { uploadMenu = false; vm.uploadFiles() })
                         DropdownMenuItem(text = { Text(stringResource(Res.string.action_upload_folder)) }, leadingIcon = { Icon(Icons.Outlined.DriveFolderUpload, null) }, onClick = { uploadMenu = false; vm.uploadFolder() })
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.action_upload_mixed)) }, leadingIcon = { Icon(Icons.Outlined.UploadFile, null) }, onClick = { uploadMenu = false; vm.basketOpen() })
                     }
                 }
                 CommandButton(Icons.Outlined.Download, stringResource(Res.string.action_download), null, { vm.download(selected) }, enabled = selected.isNotEmpty())

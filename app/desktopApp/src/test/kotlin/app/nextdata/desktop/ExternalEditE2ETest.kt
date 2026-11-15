@@ -172,6 +172,9 @@ class ExternalEditE2ETest {
         val e = env("version 1") ?: return
         try {
             runBlocking {
+                // a plain tap only looks at the file; the hint is for who chose to edit it
+                val entry = e.app.browser.value!!.state.value.entries.first { it.name == "report.zip" }
+                e.app.opener.openExternally(e.session, entry, e.app.opener.doc.value!!, edit = true, hintIfUnchanged = true)
                 e.app.opener.onForeground()
                 e.until(what = "no-change hint") { e.app.opener.message.value is OpenMessage.NoChangeDetected }
                 val m = e.app.opener.message.value as OpenMessage.NoChangeDetected

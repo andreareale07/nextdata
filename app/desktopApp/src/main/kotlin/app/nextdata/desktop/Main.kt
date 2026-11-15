@@ -54,6 +54,7 @@ import app.nextdata.ui.rememberAppLanguage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.swing.Swing
 import org.jetbrains.compose.resources.stringResource
 import java.awt.Frame
@@ -89,6 +90,12 @@ fun createEngine(fake: Boolean, paths: DesktopPaths): Engine {
         System.err.println("NextData: cannot load the engine library: $e")
         UnavailableEngine(ErrInfo.of(ErrorCodes.NOT_INITIALIZED))
     }
+}
+
+/** Drops duplicates and anything already inside a dropped folder (it would be uploaded twice). */
+fun dropRoots(paths: List<String>): List<String> {
+    val files = paths.map { File(it).absoluteFile.normalize() }.distinct()
+    return files.filter { f -> files.none { o -> o != f && o.isDirectory && f.toPath().startsWith(o.toPath()) } }.map { it.absolutePath }
 }
 
 fun fileUriToPath(uri: String): String? = try {
@@ -159,9 +166,12 @@ fun main(args: Array<String>) {
                         dragging = false
                         val data = event.dragData()
                         if (data is DragData.FilesList) {
-                            val dropped = data.readFiles().mapNotNull(::fileUriToPath)
-                            val total = dropped.sumOf { p -> File(p).let { f -> if (f.isFile) f.length() else f.walkTopDown().filter { it.isFile }.sumOf { it.length() } } }
-                            controller.uploadDropped(dropped, total)
+                            val dropped = data.readFiles().mapNotNull(::fileUriToPath).let(::dropRoots)
+                            // Big folders are measured off the UI thread: the window must not freeze after a drop.
+                            CoroutineScope(Dispatchers.IO).launch {
+                                val total = dropped.sumOf { p -> File(p).let { f -> if (f.isFile) f.length() else f.walkTopDown().filter { it.isFile }.sumOf { it.length() } } }
+                                controller.uploadDropped(dropped, total)
+                            }
                             return true
                         }
                         return false

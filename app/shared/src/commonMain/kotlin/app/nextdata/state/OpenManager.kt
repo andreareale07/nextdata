@@ -175,6 +175,7 @@ class OpenManager(
     private val watches = HashMap<String, Job>()
     private val forced = HashSet<String>()
     private val foreground = HashSet<String>()
+    private val hintOnce = HashSet<String>()
     private val sessionOf = HashMap<String, String>()
 
     fun consumeMessage() = _message.update { null }
@@ -242,7 +243,7 @@ class OpenManager(
                         val pages = if (kind == ViewerKind.Pdf) files.pdfPageCount(res.doc.localPath) else null
                         if (kind == ViewerKind.Pdf && pages == null) kind = ViewerKind.External // cannot be shown here: another app
                         if (kind == ViewerKind.External) {
-                            openExternally(sessionId, entry, res.doc)
+                            openExternally(sessionId, entry, res.doc, hintIfUnchanged = false)
                         } else if (kind == ViewerKind.Pdf) {
                             _viewer.value = ViewerState(res.doc, kind, sessionId, entry, pages = pages ?: 0)
                         } else {
@@ -302,7 +303,7 @@ class OpenManager(
      * watching it. Whether the other app writes back to this file is up to that app: that is why the watcher also
      * reports copies, and why [NoChangeDetected] points to "Import modified version".
      */
-    suspend fun openExternally(sessionId: String, entry: Entry, doc: OpenDoc, edit: Boolean = true) {
+    suspend fun openExternally(sessionId: String, entry: Entry, doc: OpenDoc, edit: Boolean = true, hintIfUnchanged: Boolean = true) {
         val ok = files.openExternal(doc.localPath, edit)
         if (!ok) {
             _message.value = OpenMessage.NoExternalApp
@@ -311,6 +312,9 @@ class OpenManager(
             return
         }
         outcome { client.openMarkOpen(doc.id) }
+        // The "nothing changed, import a version?" hint is for people who edit. A plain tap on a list item is mostly
+        // just looking at the file: no question then (a change is still noticed and saved silently).
+        if (hintIfUnchanged) hintOnce += doc.id else hintOnce -= doc.id
         if (edit) watch(sessionId, doc, entry.name)
     }
 
@@ -375,7 +379,8 @@ class OpenManager(
             val fresh = chk.copies.filter { knownCopies.add(it) }
             if (fresh.isNotEmpty()) _message.value = OpenMessage.CopyDetected(doc.id, sessionId, fresh)
             if (chk.suspicious != null || !chk.changed) {
-                if (fromForeground && fresh.isEmpty() && chk.suspicious == null) _message.value = OpenMessage.NoChangeDetected(doc.id, name)
+                // asked at most once per opening, and only when the user chose to edit
+                if (fromForeground && fresh.isEmpty() && chk.suspicious == null && hintOnce.remove(doc.id)) _message.value = OpenMessage.NoChangeDetected(doc.id, name)
                 continue
             }
             if (autoSaveExternal()) {
