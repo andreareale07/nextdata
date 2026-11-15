@@ -5,6 +5,16 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+## [0.1.0-beta.3]
+
+Novità rispetto a 0.1.0-beta.2: SMB è attivo.
+
+### Aggiunto
+- **SMB attivo** nelle build di rilascio (Windows e Android): SMB 3.1.1 firmato e cifrato, con modalità «Compatibile» (firmata, senza cifratura) scelta per profilo. Verificato contro Samba (11 casi: firma, cifratura, NTLMv2, server SMB 2.1 rifiutato, nomi pericolosi) e su emulatore Android; esiti in docs/smb-gate.md.
+
+### Noto
+- SMB: non eseguiti i controlli sui reparse point di un server Windows, sul telefono arm64 fisico e sulla modalità «Compatibile» con un server reale. Un server Samba configurato per seguire i link simbolici fuori dalla share li mostra come file normali: nessun client può riconoscerli.
+
 ## [0.1.0-beta.2]
 
 Novità rispetto a 0.1.0-beta.1: aprire e modificare i file remoti senza scaricarli, caricamento di file e cartelle insieme, meno domande quando si guarda un file con un'altra app.
@@ -49,6 +59,7 @@ Prima versione beta pubblica.
 - SMB disabilitato in attesa del relativo controllo di sicurezza.
 - Gli installer Windows non sono ancora firmati.
 
-[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.2...HEAD
+[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.3...HEAD
+[0.1.0-beta.3]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/andreareale07/nextdata/releases/tag/v0.1.0-beta.1

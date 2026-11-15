@@ -13,7 +13,7 @@ strip = true
 panic = "unwind"
 
 [features]
-# SMB resta disabilitato nelle build di rilascio finche il gate (docs/smb-gate.md) non e superato.
+# SMB e attivo nelle build di rilascio (pipeline: --features smb); la build locale senza la feature lo lascia disabilitato. Esiti del gate: docs/smb-gate.md.
 smb = ["dep:smb"]
 
 [dependencies]

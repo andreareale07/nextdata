@@ -62,12 +62,12 @@ jobs:
           workspaces: engine
       - name: Test unitari
         working-directory: engine
-        run: cargo test --lib --locked
+        run: cargo test --lib --locked --features smb
       - name: Build (CRT statico, nessuna dipendenza da VC++ Redistributable)
         working-directory: engine
         env:
           RUSTFLAGS: "-C target-feature=+crt-static"
-        run: cargo build --release --locked
+        run: cargo build --release --locked --features smb
       - uses: actions/upload-artifact@v7
         with:
           name: engine-windows-x64
@@ -93,7 +93,7 @@ jobs:
           # Android 15+ richiede librerie allineate a 16 KB
           RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
         run: |
-          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o dist/android build --release --locked
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o dist/android build --release --locked --features smb
           find dist/android -name '*.so' -exec ls -l {} \;
       - uses: actions/upload-artifact@v7
         with:

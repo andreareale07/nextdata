@@ -31,7 +31,7 @@ cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o dist/android build --release 
 ```
 Le librerie finiscono in `engine/dist/android/<abi>/libnd_engine.so` (cartella ignorata da git).
 
-**SMB.** Nelle build di rilascio SMB è spento. Per includerlo (solo per prove, finché il gate di `docs/smb-gate.md` non è superato) aggiungi `--features smb` a `cargo build` / `cargo ndk … build`.
+**SMB.** Le build di rilascio (pipeline) sono compilate con `--features smb`. In locale, per averlo, aggiungi `--features smb` a `cargo build` / `cargo ndk … build`; senza, SMB risulta non disponibile (`PROTOCOL_DISABLED`).
 
 ## 2. App desktop (Windows)
 Da `app/`:

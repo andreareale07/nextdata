@@ -210,7 +210,7 @@ I tag con suffisso (`-beta.1`, `-rc.1`) diventano pre-release.
 - [x] SFTP, WebDAV, S3
 - [x] Windows e Android, italiano e inglese
 - [x] Store cifrato dei profili, verifica delle impronte, test di sicurezza
-- [ ] SMB (disabilitato finché non supera la revisione di sicurezza dedicata)
+- [x] SMB 3.1.1 (firmato e cifrato; esiti dei controlli e punti ancora aperti in [docs/smb-gate.md](docs/smb-gate.md))
 - [ ] Firma del codice per gli installer Windows
 - [ ] Collaudo di accessibilità su dispositivo (TalkBack, Narrator)
 

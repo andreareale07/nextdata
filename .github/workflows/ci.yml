@@ -24,7 +24,7 @@ jobs:
           workspaces: engine
       - name: Test unitari
         working-directory: engine
-        run: cargo test --lib --locked
+        run: cargo test --lib --locked --features smb
       - name: Audit dipendenze
         working-directory: engine
         run: |

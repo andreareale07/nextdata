@@ -457,7 +457,10 @@ fn smb_conformance_and_security_policy() {
     let prof = json!({"name":"SMB","protocol":"smb","host":p[0],"port":p[1].parse::<u32>().unwrap(),"share":p[2],"username":p[3],"auth":"password","smb_mode": if relaxed {"relaxed"} else {"strict"}});
     let pid = save_profile(&h, prof, json!({"password": p[4]}));
     if let Ok(expect) = std::env::var("ND_TEST_SMB_EXPECT") {
-        assert_eq!(h.code("session.connect", json!({"profile_id": pid})), expect);
+        match h.call("session.connect", json!({"profile_id": pid})) {
+            Err(e) => assert_eq!(e["code"].as_str().unwrap(), expect, "full error: {e}"),
+            Ok(v) => panic!("expected {expect}, got a session: {v}"),
+        }
         return;
     }
     conformance(&h, &pid, "smb");
@@ -474,6 +477,57 @@ fn smb_conformance_and_security_policy() {
     // unknown share
     let noshare = save_profile(&h, json!({"name":"ns","protocol":"smb","host":p[0],"port":p[1].parse::<u32>().unwrap(),"share":"nonexistent","username":p[3],"auth":"password"}), json!({"password": p[4]}));
     assert_eq!(h.code("session.connect", json!({"profile_id": noshare})), "NOT_FOUND");
+}
+
+/// Links planted on the server by `infra/test-env/run-smb-tests.ps1` (ND_TEST_SMB_LINKS=1): `lnk_out` -> a file and
+/// `lnk_dir` -> a directory, both OUTSIDE the share and owned by root (the SMB user cannot modify them).
+/// FINDING: this Samba follows the links itself and presents them as ordinary entries, so they are indistinguishable
+/// for ANY SMB client (the content outside the share is readable through them). That is server configuration
+/// (`wide links`), not something a client can detect; docs/smb-gate.md records it as a known limit and the script
+/// checks that deleting the links leaves the targets untouched. What this test asserts is only what the client
+/// controls: it neither crashes nor loses the session on such entries, and the session keeps working afterwards.
+/// Real reparse points (Windows servers) are handled by `reparse_point()` in provider/smb.rs and need a Windows
+/// server: NON ESEGUITO here.
+#[cfg(feature = "smb")]
+#[test]
+fn smb_links_on_the_server_do_not_break_the_client() {
+    let Some(p) = external("ND_TEST_SMB") else { return };
+    if std::env::var("ND_TEST_SMB_LINKS").is_err() {
+        return;
+    }
+    let h = harness();
+    let prof = json!({"name":"SMB","protocol":"smb","host":p[0],"port":p[1].parse::<u32>().unwrap(),"share":p[2],"username":p[3],"auth":"password"});
+    let pid = save_profile(&h, prof, json!({"password": p[4]}));
+    let c = h.ok("session.connect", json!({"profile_id": pid}));
+    let (s, home) = (c["session"].as_str().unwrap().to_string(), c["home_ref"].as_str().unwrap().to_string());
+    let l = h.ok("session.list", json!({"session": s, "ref": home, "limit": 500}));
+    let dst = h.path("links-dst");
+    fs::create_dir_all(&dst).unwrap();
+    for name in ["lnk_out", "lnk_dir"] {
+        let Some(e) = l["entries"].as_array().unwrap().iter().find(|e| e["name"] == name) else { continue };
+        let _ = h.call("transfer.download", json!({"session": s, "refs": [e["ref"]], "dest_dir": dst.to_string_lossy(), "collision": "rename"}));
+        let _ = h.call("session.delete", json!({"session": s, "refs": [e["ref"]], "recursive": true}));
+    }
+    h.ok("session.list", json!({"session": s, "ref": home, "limit": 500}));
+    h.ok("session.close", json!({"session": s}));
+}
+
+/// Keeps one real session open for ND_TEST_SMB_HOLD seconds so that the server side can be inspected
+/// (`smbstatus`: negotiated dialect, signing, encryption). Does nothing without ND_TEST_SMB_HOLD.
+#[cfg(feature = "smb")]
+#[test]
+fn smb_hold_session_for_inspection() {
+    let Some(p) = external("ND_TEST_SMB") else { return };
+    let Some(secs) = std::env::var("ND_TEST_SMB_HOLD").ok().and_then(|s| s.parse::<u64>().ok()) else { return };
+    let h = harness();
+    let relaxed = std::env::var("ND_TEST_SMB_MODE").map(|m| m == "relaxed").unwrap_or(false);
+    let prof = json!({"name":"SMB","protocol":"smb","host":p[0],"port":p[1].parse::<u32>().unwrap(),"share":p[2],"username":p[3],"auth":"password","smb_mode": if relaxed {"relaxed"} else {"strict"}});
+    let pid = save_profile(&h, prof, json!({"password": p[4]}));
+    let c = h.ok("session.connect", json!({"profile_id": pid}));
+    let s = c["session"].as_str().unwrap().to_string();
+    let _ = h.ok("session.list", json!({"session": s, "ref": c["home_ref"]}));
+    std::thread::sleep(std::time::Duration::from_secs(secs));
+    h.ok("session.close", json!({"session": s}));
 }
 
 /// No server needed: public destinations and invalid profiles are refused before any connection.
