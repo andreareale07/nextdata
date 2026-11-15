@@ -5,6 +5,10 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+## [0.1.0-beta.4]
+
+Novità rispetto a 0.1.0-beta.3: una sola voce «Carica», avanzamento dei trasferimenti sempre visibile e trasferimenti che non si interrompono tornando ai profili.
+
 ### Modificato
 - Una sola voce «Carica» al posto di tre: su desktop un unico dialogo per file e cartelle insieme; su telefono un riquadro guidato per aggiungere file e cartelle in più passaggi e caricare tutto in un unico trasferimento.
 - Barra di avanzamento unica per tutti i trasferimenti (elementi, percentuale, velocità), visibile nel browser, nella schermata dei profili e nelle impostazioni; si tocca per aprire i trasferimenti.
@@ -66,7 +70,8 @@ Prima versione beta pubblica.
 - SMB disabilitato in attesa del relativo controllo di sicurezza.
 - Gli installer Windows non sono ancora firmati.
 
-[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.3...HEAD
+[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.4...HEAD
+[0.1.0-beta.4]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/andreareale07/nextdata/releases/tag/v0.1.0-beta.1
