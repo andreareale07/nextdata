@@ -57,6 +57,12 @@ interface PlatformFiles {
     /** [onPicked] runs once the user has chosen (before any slow copy), so the UI can show "preparing…". */
     suspend fun pickUploadFiles(onPicked: () -> Unit = {}): UploadSelection?
     suspend fun pickUploadFolder(onPicked: () -> Unit = {}): UploadSelection?
+
+    /** True when one dialog can select files AND folders together (desktop). Otherwise the app guides several rounds. */
+    val supportsMixedPicker: Boolean get() = false
+
+    /** Files and folders chosen together in one dialog; only when [supportsMixedPicker]. */
+    suspend fun pickUploadMixed(onPicked: () -> Unit = {}): UploadSelection? = null
     /**
      * Destination for a download. [askEachTime] = false reuses the last chosen folder when the platform
      * still holds access to it (otherwise the picker is shown).

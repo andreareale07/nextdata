@@ -377,6 +377,21 @@ class BrowserViewModel(
         }
     }
 
+    /** The one "Upload…" action: any number of files and folders. Desktop = one dialog; phone = guided rounds. */
+    fun upload() {
+        if (!files.supportsMixedPicker) {
+            basketOpen()
+            return
+        }
+        scope.launch {
+            try {
+                files.pickUploadMixed(onPicked = { _state.update { it.copy(preparing = true) } })?.let { queueUpload(it) }
+            } finally {
+                _state.update { it.copy(preparing = false) }
+            }
+        }
+    }
+
     // ---- mixed upload: the system pickers choose either files or one folder, so the user collects several rounds
 
     private var basketSel: UploadSelection? = null
@@ -469,7 +484,12 @@ class BrowserViewModel(
         closed = true
         loadJob?.cancel()
         scope.launch {
-            withContext(NonCancellable) { outcome { client.closeSession(sessionId) } }
+            withContext(NonCancellable) {
+                // a transfer that was started must finish even if the user goes back to the profiles: the session is
+                // closed only when nothing is using it any more
+                transfers.awaitIdle(sessionId)
+                outcome { client.closeSession(sessionId) }
+            }
         }
     }
 }

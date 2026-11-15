@@ -37,8 +37,6 @@
     <string name="action_show_secret">Mostra</string>
     <string name="action_up">Livello superiore</string>
     <string name="action_upload">Carica</string>
-    <string name="action_upload_files">Carica file…</string>
-    <string name="action_upload_folder">Carica cartella…</string>
 
     <!-- Navigazione -->
     <string name="nav_settings">Impostazioni</string>
@@ -461,7 +459,14 @@
     <string name="action_reconnect">Riconnetti</string>
     <string name="hint_s3_path_style">Suggerimento: con un server compatibile S3 (non Amazon) attiva “Indirizzamento path-style” nel passo Server.</string>
     <string name="upload_preparing">Preparazione dei file selezionati…</string>
-    <string name="action_upload_mixed">Carica file e cartelle…</string>
+    <string name="transfer_strip_upload">Caricamento</string>
+    <string name="transfer_strip_download">Scaricamento</string>
+    <string name="transfer_strip_both">Trasferimento</string>
+    <string name="transfer_strip_desc">Avanzamento dei trasferimenti</string>
+    <plurals name="transfer_strip_count">
+        <item quantity="one">%1$d trasferimento</item>
+        <item quantity="other">%1$d trasferimenti</item>
+    </plurals>
     <string name="basket_title">File e cartelle da caricare</string>
     <string name="basket_hint">Aggiungi file e cartelle in più passaggi, poi carica tutto insieme.</string>
     <plurals name="basket_count">

@@ -5,6 +5,13 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+### Modificato
+- Una sola voce «Carica» al posto di tre: su desktop un unico dialogo per file e cartelle insieme; su telefono un riquadro guidato per aggiungere file e cartelle in più passaggi e caricare tutto in un unico trasferimento.
+- Barra di avanzamento unica per tutti i trasferimenti (elementi, percentuale, velocità), visibile nel browser, nella schermata dei profili e nelle impostazioni; si tocca per aprire i trasferimenti.
+
+### Corretto
+- Tornare alla schermata dei profili non interrompe più i trasferimenti in corso: la connessione resta aperta finché non sono terminati.
+
 ## [0.1.0-beta.3]
 
 Novità rispetto a 0.1.0-beta.2: SMB è attivo.

@@ -173,9 +173,7 @@ fun BrowserScreen(
     val favRemoveLabel = stringResource(Res.string.action_favorite_remove)
     val detailsLabel = stringResource(Res.string.details_title)
     val newFolderLabel = stringResource(Res.string.folder_new_title)
-    val uploadFilesLabel = stringResource(Res.string.action_upload_files)
-    val uploadFolderLabel = stringResource(Res.string.action_upload_folder)
-    val uploadMixedLabel = stringResource(Res.string.action_upload_mixed)
+    val uploadLabel = stringResource(Res.string.action_upload)
     val refreshLabel = stringResource(Res.string.action_refresh)
     val selectAllLabel = stringResource(Res.string.action_select_all)
 
@@ -183,9 +181,7 @@ fun BrowserScreen(
     fun menuFor(e: Entry?): List<EntryAction> = buildList {
         if (e == null) {
             add(EntryAction(Icons.Outlined.CreateNewFolder, newFolderLabel) { newFolder = true })
-            add(EntryAction(Icons.Outlined.UploadFile, uploadFilesLabel) { vm.uploadFiles() })
-            add(EntryAction(Icons.Outlined.DriveFolderUpload, uploadFolderLabel) { vm.uploadFolder() })
-            add(EntryAction(Icons.Outlined.UploadFile, uploadMixedLabel) { vm.basketOpen() })
+            add(EntryAction(Icons.Outlined.UploadFile, uploadLabel) { vm.upload() })
             add(EntryAction(Icons.Outlined.Refresh, refreshLabel) { vm.refresh() })
             add(EntryAction(Icons.Outlined.SelectAll, selectAllLabel) { vm.selectAll(visible) })
             return@buildList
@@ -204,6 +200,7 @@ fun BrowserScreen(
     }
 
     val banner: @Composable () -> Unit = {
+        TransfersStrip(controller)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (state.preparing) {
             Column(Modifier.fillMaxWidth()) {
@@ -406,9 +403,7 @@ fun BrowserScreen(
           Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
             val items = listOf(
                 Triple(Icons.Outlined.CreateNewFolder, newFolderLabel) { newFolder = true },
-                Triple(Icons.Outlined.UploadFile, uploadFilesLabel) { vm.uploadFiles() },
-                Triple(Icons.Outlined.DriveFolderUpload, uploadFolderLabel) { vm.uploadFolder() },
-                Triple(Icons.Outlined.UploadFile, uploadMixedLabel) { vm.basketOpen() },
+                Triple(Icons.Outlined.UploadFile, uploadLabel) { vm.upload() },
             )
             items.forEach { (icon, label, act) ->
                 ListItem(

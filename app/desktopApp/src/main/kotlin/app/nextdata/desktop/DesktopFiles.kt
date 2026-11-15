@@ -36,6 +36,20 @@ class DesktopFiles(private val frame: () -> Frame?) : PlatformFiles {
         }
     }
 
+    override val supportsMixedPicker: Boolean get() = true
+
+    /** One dialog for any number of files and folders (a folder is uploaded with everything inside it). */
+    override suspend fun pickUploadMixed(onPicked: () -> Unit): UploadSelection? {
+        val chosen = edt {
+            val c = JFileChooser(lastDir).apply { fileSelectionMode = JFileChooser.FILES_AND_DIRECTORIES; isMultiSelectionEnabled = true }
+            if (c.showOpenDialog(frame()) == JFileChooser.APPROVE_OPTION) c.selectedFiles.toList().also { l -> l.firstOrNull()?.parentFile?.let { lastDir = it } } else emptyList()
+        }
+        if (chosen.isEmpty()) return null
+        onPicked()
+        val total = withContext(Dispatchers.IO) { chosen.sumOf { f -> if (f.isFile) f.length() else f.walkTopDown().filter { it.isFile }.sumOf { it.length() } } }
+        return UploadSelection(chosen.map { it.absolutePath }, total)
+    }
+
     private fun chooseDir(): File? {
         val c = JFileChooser(lastDir).apply { fileSelectionMode = JFileChooser.DIRECTORIES_ONLY; isAcceptAllFileFilterUsed = false }
         return if (c.showOpenDialog(frame()) == JFileChooser.APPROVE_OPTION) c.selectedFile?.also { lastDir = it } else null

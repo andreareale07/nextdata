@@ -325,7 +325,6 @@ fun DesktopCommandBar(
     onDelete: (List<Entry>) -> Unit,
     onToggleDetails: () -> Unit,
 ) {
-    var uploadMenu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var places by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
@@ -348,14 +347,7 @@ fun DesktopCommandBar(
                 VerticalDivider(Modifier.height(24.dp))
                 Spacer(Modifier.width(4.dp))
                 CommandButton(Icons.Outlined.CreateNewFolder, stringResource(Res.string.folder_new_title), "Ctrl+N", onNewFolder)
-                Box {
-                    CommandButton(Icons.Outlined.UploadFile, stringResource(Res.string.action_upload), null, { uploadMenu = true })
-                    DropdownMenu(uploadMenu, { uploadMenu = false }) {
-                        DropdownMenuItem(text = { Text(stringResource(Res.string.action_upload_files)) }, leadingIcon = { Icon(Icons.Outlined.UploadFile, null) }, onClick = { uploadMenu = false; vm.uploadFiles() })
-                        DropdownMenuItem(text = { Text(stringResource(Res.string.action_upload_folder)) }, leadingIcon = { Icon(Icons.Outlined.DriveFolderUpload, null) }, onClick = { uploadMenu = false; vm.uploadFolder() })
-                        DropdownMenuItem(text = { Text(stringResource(Res.string.action_upload_mixed)) }, leadingIcon = { Icon(Icons.Outlined.UploadFile, null) }, onClick = { uploadMenu = false; vm.basketOpen() })
-                    }
-                }
+                CommandButton(Icons.Outlined.UploadFile, stringResource(Res.string.action_upload), null, vm::upload)
                 CommandButton(Icons.Outlined.Download, stringResource(Res.string.action_download), null, { vm.download(selected) }, enabled = selected.isNotEmpty())
                 CommandButton(Icons.Outlined.DriveFileRenameOutline, stringResource(Res.string.action_rename), "F2", { onRename(selected.first()) }, enabled = selected.size == 1)
                 CommandButton(Icons.Outlined.Delete, stringResource(Res.string.action_delete), "Del", { onDelete(selected) }, enabled = selected.isNotEmpty())

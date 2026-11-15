@@ -22,6 +22,9 @@ import app.nextdata.state.LanguageChoice
 import app.nextdata.state.Outcome
 import app.nextdata.state.Screen
 import app.nextdata.state.TransferDirection
+import app.nextdata.state.TransferItem
+import app.nextdata.state.TransfersSummary
+import app.nextdata.protocol.ProgressInfo
 import app.nextdata.state.TransferStatus
 import app.nextdata.state.UiMessage
 import app.nextdata.state.errorOrNull
@@ -401,6 +404,43 @@ class ViewModelsTest {
         assertEquals(1, b.state.value.favorites.size)
         b.toggleFavoriteHere(); advanceUntilIdle()
         assertFalse(b.state.value.isFavoriteHere)
+    }
+
+    @Test
+    fun leavingTheBrowserDoesNotCutARunningUpload() = runTest {
+        val rig = Rig(this, stepDelay = 100)
+        val b = connected(rig)
+        rig.files.uploadFiles = UploadSelection(listOf("/cache/a.bin"), 1000)
+        b.uploadFiles()
+        advanceTimeBy(150) // the upload is running now
+        assertTrue(rig.app.transfers.items.value.any { it.status.isActive })
+        rig.app.disconnect()
+        advanceTimeBy(50)
+        assertFalse("session.close" in rig.engine.commandLog, "the session must stay open while the transfer runs")
+        assertTrue(rig.app.transfers.items.value.none { it.status is TransferStatus.Cancelled || it.status is TransferStatus.Failed })
+        advanceUntilIdle()
+        assertTrue(rig.app.transfers.items.value.all { it.status is TransferStatus.Done }, "the transfer finishes")
+        assertTrue("session.close" in rig.engine.commandLog, "then the session is closed")
+    }
+
+    @Test
+    fun transfersSummaryCombinesAllRunningTransfers() {
+        fun item(id: Long, dir: TransferDirection, bytes: Long, total: Long?, done: Int, all: Int, speed: Long?) = TransferItem(
+            id, dir, listOf("x"), "p", TransferStatus.Running, ProgressInfo(bytes, total, null, done, all), speedBps = speed,
+        )
+        assertNull(TransfersSummary.of(emptyList()))
+        val s = TransfersSummary.of(listOf(
+            item(1, TransferDirection.Upload, 50, 100, 1, 4, 10),
+            item(2, TransferDirection.Upload, 150, 300, 2, 8, 20),
+            TransferItem(3, TransferDirection.Upload, listOf("done"), "p", TransferStatus.Done),
+        ))!!
+        assertEquals(2, s.active)
+        assertEquals(0.5f, s.fraction)
+        assertEquals(3, s.itemsDone)
+        assertEquals(12, s.itemsTotal)
+        assertEquals(30L, s.speedBps)
+        // an unknown total makes the bar indeterminate instead of lying
+        assertNull(TransfersSummary.of(listOf(item(1, TransferDirection.Download, 5, null, 0, 0, null)))!!.fraction)
     }
 
     @Test

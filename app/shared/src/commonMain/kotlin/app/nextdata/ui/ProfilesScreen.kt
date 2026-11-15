@@ -129,6 +129,7 @@ fun ProfilesPane(controller: AppController, modifier: Modifier = Modifier) {
                 items(recents, key = { "r" + it.ref }) { r -> PaneLink(r.name, Icons.Outlined.Folder, bs.ref == r.ref) { b.open(r.ref) } }
             }))
         }
+        TransfersStrip(controller)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { controller.navigate(Screen.Transfers) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) {

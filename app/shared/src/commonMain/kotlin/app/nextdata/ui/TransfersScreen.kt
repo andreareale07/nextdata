@@ -53,9 +53,56 @@ import app.nextdata.state.Formatters
 import app.nextdata.state.TransferDirection
 import app.nextdata.state.TransferItem
 import app.nextdata.state.TransferStatus
+import app.nextdata.state.TransfersSummary
+import app.nextdata.state.Screen
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import app.nextdata.state.TransfersViewModel
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
+
+/**
+ * One compact line + bar for ALL running transfers, shown wherever the user is (browser, profiles): "Uploading · 3/12 ·
+ * 45% · 2.1 MB/s". Tapping opens the transfers page. Nothing is shown when nothing is running.
+ */
+@Composable
+fun TransfersStrip(controller: AppController, modifier: Modifier = Modifier) {
+    val items by controller.transfers.items.collectAsState()
+    val sum = remember(items) { TransfersSummary.of(items) } ?: return
+    val tag = LocalLanguageTag.current
+    val label = stringResource(
+        when {
+            sum.uploads > 0 && sum.downloads == 0 -> Res.string.transfer_strip_upload
+            sum.downloads > 0 && sum.uploads == 0 -> Res.string.transfer_strip_download
+            else -> Res.string.transfer_strip_both
+        },
+    )
+    val text = buildString {
+        append(label)
+        if (sum.itemsTotal > 1) append(" · ").append(sum.itemsDone).append("/").append(sum.itemsTotal)
+        sum.fraction?.let { append(" · ").append((it * 100).toInt()).append("%") }
+        sum.speedBps?.let { append(" · ").append(Formatters.speed(it, tag)) }
+        if (sum.active > 1) append(" · ").append(pluralStringResource(Res.plurals.transfer_strip_count, sum.active, sum.active))
+    }
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = modifier.fillMaxWidth().clickable(role = Role.Button) { controller.navigate(Screen.Transfers) }) {
+        Column {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (sum.downloads > 0 && sum.uploads == 0) Icons.Outlined.Download else Icons.Outlined.Upload, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Spacer(Modifier.size(10.dp))
+                Text(
+                    text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+            val desc = stringResource(Res.string.transfer_strip_desc)
+            val f = sum.fraction
+            if (f != null) LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = desc })
+            else LinearProgressIndicator(modifier = Modifier.fillMaxWidth().semantics { contentDescription = desc })
+        }
+    }
+}
 
 /** Full-screen transfers page (phone, or the content area on desktop when opened from the side panel). */
 @OptIn(ExperimentalMaterial3Api::class)

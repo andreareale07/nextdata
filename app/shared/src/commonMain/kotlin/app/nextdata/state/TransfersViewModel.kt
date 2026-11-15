@@ -153,6 +153,14 @@ class TransfersViewModel(
 
     val activeCount: Int get() = _items.value.count { it.status.isActive }
 
+    /**
+     * Returns once no queued/running transfer uses [sessionId]. Leaving the browser must never cut a transfer that
+     * was started: the session is closed only after this returns.
+     */
+    suspend fun awaitIdle(sessionId: String) {
+        _items.first { list -> list.none { it.status.isActive && specs[it.id]?.sessionId == sessionId } }
+    }
+
     fun enqueueDownload(
         sessionId: String,
         profileName: String,
@@ -298,6 +306,41 @@ class TransfersViewModel(
                 update(id) { it.copy(status = TransferStatus.Done, speedBps = null, etaSec = null) }
                 _completions.tryEmit(TransferCompletion(spec.sessionId, TransferDirection.Upload, spec.parentRef, spec.selection.paths.size))
             }
+        }
+    }
+}
+
+/** What the user sees about all running transfers together (one bar, one line). Pure, so it is unit-tested. */
+data class TransfersSummary(
+    val active: Int,
+    val uploads: Int,
+    val downloads: Int,
+    /** 0..1 over the bytes of all active transfers; null while any of them has no known total. */
+    val fraction: Float?,
+    val itemsDone: Int,
+    val itemsTotal: Int,
+    val speedBps: Long?,
+) {
+    companion object {
+        fun of(items: List<TransferItem>): TransfersSummary? {
+            val act = items.filter { it.status.isActive }
+            if (act.isEmpty()) return null
+            val totals = act.map { it.progress?.total }
+            val fraction = if (totals.all { it != null && it > 0 }) {
+                val total = totals.sumOf { it!! }.toDouble()
+                val done = act.sumOf { (it.progress?.bytes ?: 0L).coerceAtMost(it.progress?.total ?: 0L) }.toDouble()
+                (done / total).toFloat().coerceIn(0f, 1f)
+            } else null
+            val speeds = act.mapNotNull { it.speedBps }
+            return TransfersSummary(
+                active = act.size,
+                uploads = act.count { it.direction == TransferDirection.Upload },
+                downloads = act.count { it.direction == TransferDirection.Download },
+                fraction = fraction,
+                itemsDone = act.sumOf { (it.progress?.itemsDone ?: 0).coerceAtMost(it.progress?.itemsTotal ?: 0) },
+                itemsTotal = act.sumOf { it.progress?.itemsTotal ?: 0 },
+                speedBps = speeds.takeIf { it.isNotEmpty() }?.sum(),
+            )
         }
     }
 }

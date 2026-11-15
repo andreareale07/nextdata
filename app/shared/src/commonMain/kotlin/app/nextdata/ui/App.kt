@@ -240,6 +240,7 @@ private fun Shell(controller: AppController) {
                             }
                         }
                     }
+                    if (screen == Screen.Profiles || screen == Screen.Settings) TransfersStrip(controller)
                     AnimatedVisibility(
                         screen in PhoneTabs,
                         enter = expandVertically(tween(motionMs(200))) + fadeIn(tween(motionMs(200))),
