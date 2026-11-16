@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.window.rememberWindowState
 import app.nextdata.bridge.JniEngine
 import app.nextdata.bridge.NativeLoader
@@ -144,11 +146,23 @@ fun main(args: Array<String>) {
             }
         }
 
+        // Quitting must never cut a transfer: with transfers running the user chooses to wait for them (or to quit anyway).
+        var quitAsk by remember { mutableStateOf(false) }
+        var quitWaiting by remember { mutableStateOf(false) }
+        val quitNow = {
+            controller.disconnect(navigateToProfiles = false)
+            exitApplication()
+        }
+        val requestQuit = { if (controller.transfers.activeCount == 0) quitNow() else quitAsk = true }
+        androidx.compose.runtime.LaunchedEffect(quitWaiting) {
+            if (quitWaiting) {
+                controller.transfers.items.first { list -> list.none { it.status.isActive } }
+                quitNow()
+            }
+        }
+
         Window(
-            onCloseRequest = {
-                controller.disconnect(navigateToProfiles = false)
-                exitApplication()
-            },
+            onCloseRequest = requestQuit,
             title = "NextData" + (browser?.let { " — " + it.profile.name } ?: ""),
             icon = icon,
             state = windowState,
@@ -156,7 +170,26 @@ fun main(args: Array<String>) {
             frame = window
             // Menus are re-created when the language changes (tag is part of the key).
             androidx.compose.runtime.key(tag) {
-                DesktopMenuBar(controller, settings.showHidden, settings.viewMode == app.nextdata.state.ViewMode.Grid, settings.detailsOpen)
+                DesktopMenuBar(controller, settings.showHidden, settings.viewMode == app.nextdata.state.ViewMode.Grid, settings.detailsOpen, requestQuit)
+            }
+            if (quitAsk) {
+                val active = controller.transfers.items.collectAsState().value.count { it.status.isActive }
+                NextDataTheme {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { quitAsk = false },
+                        title = { Text(stringResource(Res.string.quit_busy_title)) },
+                        text = { Text(if (quitWaiting) stringResource(Res.string.quit_waiting) else stringResource(Res.string.quit_busy_body, active)) },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(enabled = !quitWaiting, onClick = { quitWaiting = true }) { Text(stringResource(Res.string.quit_wait)) }
+                        },
+                        dismissButton = {
+                            Row {
+                                androidx.compose.material3.TextButton(onClick = { quitNow() }) { Text(stringResource(Res.string.quit_now)) }
+                                androidx.compose.material3.TextButton(onClick = { quitWaiting = false; quitAsk = false }) { Text(stringResource(Res.string.action_cancel)) }
+                            }
+                        },
+                    )
+                }
             }
             val entryDrag = remember { DesktopEntryDrag() }
             val dropTarget = remember {
@@ -204,16 +237,13 @@ private fun DropOverlay() {
 }
 
 @Composable
-private fun androidx.compose.ui.window.FrameWindowScope.DesktopMenuBar(controller: AppController, showHidden: Boolean, grid: Boolean, details: Boolean) {
+private fun androidx.compose.ui.window.FrameWindowScope.DesktopMenuBar(controller: AppController, showHidden: Boolean, grid: Boolean, details: Boolean, onQuit: () -> Unit) {
     MenuBar {
         Menu(stringResource(Res.string.menu_file)) {
             Item(stringResource(Res.string.menu_new_profile), shortcut = KeyShortcut(Key.N, ctrl = true, shift = true), onClick = controller::requestNewProfile)
             Item(stringResource(Res.string.action_disconnect), enabled = controller.browser.value != null, onClick = { controller.disconnect() })
             Separator()
-            Item(stringResource(Res.string.menu_quit), shortcut = KeyShortcut(Key.Q, ctrl = true), onClick = {
-                controller.disconnect(navigateToProfiles = false)
-                kotlin.system.exitProcess(0)
-            })
+            Item(stringResource(Res.string.menu_quit), shortcut = KeyShortcut(Key.Q, ctrl = true), onClick = onQuit)
         }
         Menu(stringResource(Res.string.menu_view)) {
             Item(stringResource(Res.string.action_refresh), shortcut = KeyShortcut(Key.F5), onClick = { controller.browser.value?.refresh() })

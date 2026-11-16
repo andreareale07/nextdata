@@ -42,6 +42,11 @@
     <!-- Navigation -->
     <string name="nav_settings">Settings</string>
     <string name="nav_transfers">Transfers</string>
+    <string name="quit_busy_title">Transfers in progress</string>
+    <string name="quit_busy_body">%1$d transfer(s) not finished yet. NextData can wait for them and then close.</string>
+    <string name="quit_wait">Wait and close</string>
+    <string name="quit_now">Close now</string>
+    <string name="quit_waiting">Closing when transfers finish…</string>
     <string name="welcome_title">Select a profile</string>
     <string name="welcome_body">Choose a profile on the left to browse its files.</string>
     <string name="welcome_title_empty">Welcome to NextData</string>

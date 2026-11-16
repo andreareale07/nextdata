@@ -42,6 +42,11 @@
     <!-- Navigazione -->
     <string name="nav_settings">Impostazioni</string>
     <string name="nav_transfers">Trasferimenti</string>
+    <string name="quit_busy_title">Trasferimenti in corso</string>
+    <string name="quit_busy_body">%1$d trasferimenti non ancora terminati. NextData può attenderli e poi chiudersi.</string>
+    <string name="quit_wait">Attendi e chiudi</string>
+    <string name="quit_now">Chiudi subito</string>
+    <string name="quit_waiting">Chiusura al termine dei trasferimenti…</string>
     <string name="welcome_title">Seleziona un profilo</string>
     <string name="welcome_body">Scegli un profilo a sinistra per sfogliarne i file.</string>
     <string name="welcome_title_empty">Benvenuto in NextData</string>

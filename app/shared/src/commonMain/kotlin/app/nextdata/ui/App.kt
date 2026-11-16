@@ -230,7 +230,7 @@ private fun Shell(controller: AppController) {
                         ) { s ->
                             when {
                                 s == Screen.Settings -> SettingsScreen(controller, onBack = { controller.back() })
-                                s == Screen.Transfers -> Box(Modifier.fillMaxSize().horizontalSwipe(onRight = { controller.switchTab(Screen.Profiles) })) {
+                                s == Screen.Transfers -> Box(Modifier.fillMaxSize().horizontalSwipe(onRight = { controller.back() })) { // back = the screen it was opened from (folder, profiles)
                                     TransfersScreen(controller, onBack = { controller.back() })
                                 }
                                 s == Screen.Browser && (browser ?: lastBrowser) != null -> BrowserScreen(controller, (browser ?: lastBrowser)!!, compact = true)

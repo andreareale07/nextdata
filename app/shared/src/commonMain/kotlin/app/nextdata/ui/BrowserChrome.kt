@@ -241,7 +241,7 @@ fun CompactHeader(title: String, selectedCount: Int) {
     }
 }
 
-/** Phone bottom bar: back, sort, search, add and the overflow menu, all within thumb reach. */
+/** Phone bottom bar: back, profiles, sort, search, add and the overflow menu, all within thumb reach. */
 @Composable
 fun CompactBottomBar(
     controller: AppController,
@@ -262,6 +262,8 @@ fun CompactBottomBar(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 NdIconButton(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(Res.string.action_back), { controller.back() })
+                // straight to the profile list; transfers keep going and the session closes itself once they are done
+                NdIconButton(Icons.Outlined.Storage, stringResource(Res.string.profiles_title), { controller.disconnect() })
                 Box {
                     NdIconButton(Icons.AutoMirrored.Outlined.Sort, stringResource(Res.string.sort_title), { sortMenu = true })
                     SortMenu(sortMenu, state, { sortMenu = false }, vm::setSort)
@@ -270,6 +272,10 @@ fun CompactBottomBar(
                 NdIconButton(Icons.Outlined.Add, stringResource(Res.string.action_add), onAdd)
                 Box {
                     NdIconButton(Icons.Outlined.MoreVert, stringResource(Res.string.action_more), { overflow = true })
+                    if (activeTransfers > 0) {
+                        // hint that transfers are running (swipe left to see them)
+                        Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(MaterialTheme.colorScheme.primary))
+                    }
                     DropdownMenu(overflow, { overflow = false }) {
                         DropdownMenuItem(text = { Text(stringResource(Res.string.action_refresh)) }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) }, onClick = { overflow = false; vm.refresh() })
                         DropdownMenuItem(

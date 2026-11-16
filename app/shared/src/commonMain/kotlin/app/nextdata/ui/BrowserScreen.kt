@@ -50,6 +50,7 @@ import app.nextdata.shared.resources.*
 import app.nextdata.state.AppController
 import app.nextdata.state.BrowserListing
 import app.nextdata.state.BrowserViewModel
+import app.nextdata.state.Screen
 import app.nextdata.state.UiMessage
 import app.nextdata.state.isConnectionLost
 import app.nextdata.state.ViewMode
@@ -222,7 +223,9 @@ fun BrowserScreen(
     }
 
     if (compact) {
-        Box(Modifier.fillMaxSize().then(keyModifier)) {
+        // swipe left = transfers (the way back is the swipe right on that screen); off while selecting or searching
+        val swipeToTransfers = if (state.selectionMode || filterOpen) null else ({ controller.navigate(Screen.Transfers) })
+        Box(Modifier.fillMaxSize().then(keyModifier).horizontalSwipe(onLeft = swipeToTransfers)) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.surface,
                 snackbarHost = { SnackbarHost(snackbar) },
