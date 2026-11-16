@@ -5,6 +5,17 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+## [0.1.0-beta.7]
+
+Novità rispetto a 0.1.0-beta.6: navigazione più rapida da smartphone e chiusura sicura su PC.
+
+### Aggiunto
+- **Telefono, tasto Profili** nella barra in basso del browser: riporta all'elenco dei profili con un tocco. I trasferimenti in corso proseguono e la connessione si chiude da sola quando sono terminati.
+- **Telefono, swipe laterale:** dal browser, scorrere verso sinistra mostra i Trasferimenti; scorrere verso destra riporta alla cartella in cui si era. Un pallino sul menu ⋮ segnala i trasferimenti attivi.
+
+### Corretto
+- **PC:** chiudendo la finestra (o con «Esci») mentre ci sono trasferimenti in corso, non vengono più interrotti: un avviso permette di attendere la fine e poi chiudere, chiudere subito o annullare.
+
 ## [0.1.0-beta.5]
 
 Novità rispetto a 0.1.0-beta.4: trascinamento degli elementi su desktop.
