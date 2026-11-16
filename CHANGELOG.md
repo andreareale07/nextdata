@@ -5,6 +5,13 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+## [0.1.0-beta.8]
+
+Novità rispetto a 0.1.0-beta.7: trascinamento di cartelle verso Esplora file.
+
+### Corretto
+- **PC:** trascinando una cartella dall'app a Esplora file, la copia non veniva più completata se il download dal server richiedeva più di circa 10 secondi. Il tempo concesso è ora di un'ora. Un registro diagnostico (`nextdata-drag.log` nella cartella temporanea) aiuta a capire eventuali altri casi.
+
 ## [0.1.0-beta.7]
 
 Novità rispetto a 0.1.0-beta.6: navigazione più rapida da smartphone e chiusura sicura su PC.
