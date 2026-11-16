@@ -28,7 +28,6 @@ sealed interface UiMessage {
     data class Renamed(val name: String) : UiMessage
     data class Moved(val count: Int, val to: String) : UiMessage
     /** Too big to be copied to the file manager by dragging: use Download. */
-    data object DragTooLarge : UiMessage
     data class Deleted(val count: Int) : UiMessage
     data class DownloadQueued(val count: Int) : UiMessage
     data class UploadQueued(val count: Int) : UiMessage
@@ -84,7 +83,6 @@ data class BrowserState(
     /** Picked files are being copied/prepared before the upload is queued. */
     val preparing: Boolean = false,
     /** "Files and folders" upload being put together: number of items added so far; null = not open. */
-    val basket: Int? = null,
     val message: UiMessage? = null,
 ) {
     val isFavoriteHere: Boolean get() = ref != null && favorites.any { it.ref == ref }
@@ -364,7 +362,6 @@ class BrowserViewModel(
         _dragging.value = null
     }
 
-    fun dragRefused() = _state.update { it.copy(message = UiMessage.DragTooLarge) }
 
     /**
      * Dropped on the file manager: copies [entries] into [stagingDir] and returns true when everything arrived. Called
@@ -432,10 +429,13 @@ class BrowserViewModel(
         }
     }
 
-    /** The one "Upload…" action: any number of files and folders. Desktop = one dialog; phone = guided rounds. */
+    /** True when one dialog can pick files and folders together (desktop). */
+    val mixedUpload: Boolean get() = files.supportsMixedPicker
+
+    /** The "Upload" action: desktop = one dialog for files and folders; phone = the system multi-file picker. */
     fun upload() {
         if (!files.supportsMixedPicker) {
-            basketOpen()
+            uploadFiles()
             return
         }
         scope.launch {
@@ -445,45 +445,6 @@ class BrowserViewModel(
                 _state.update { it.copy(preparing = false) }
             }
         }
-    }
-
-    // ---- mixed upload: the system pickers choose either files or one folder, so the user collects several rounds
-
-    private var basketSel: UploadSelection? = null
-
-    fun basketOpen() = _state.update { it.copy(basket = basketSel?.paths?.size ?: 0) }
-
-    fun basketAddFiles() = basketAdd { files.pickUploadFiles(onPicked = { _state.update { it.copy(preparing = true) } }) }
-
-    fun basketAddFolder() = basketAdd { files.pickUploadFolder(onPicked = { _state.update { it.copy(preparing = true) } }) }
-
-    private fun basketAdd(pick: suspend () -> UploadSelection?) {
-        scope.launch {
-            try {
-                val add = pick() ?: return@launch
-                val cur = basketSel
-                basketSel = if (cur == null) add else UploadSelection(
-                    cur.paths + add.paths,
-                    if (cur.totalBytes != null && add.totalBytes != null) cur.totalBytes + add.totalBytes else null,
-                ) { cur.release(); add.release() }
-                _state.update { it.copy(basket = basketSel?.paths?.size ?: 0) }
-            } finally {
-                _state.update { it.copy(preparing = false) }
-            }
-        }
-    }
-
-    fun basketUpload() {
-        val sel = basketSel
-        basketSel = null
-        _state.update { it.copy(basket = null) }
-        if (sel != null) queueUpload(sel)
-    }
-
-    fun basketCancel() {
-        basketSel?.release()
-        basketSel = null
-        _state.update { it.copy(basket = null) }
     }
 
     /** Upload of already-known local paths (drag & drop). */

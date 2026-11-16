@@ -618,40 +618,15 @@ class ViewModelsTest {
     }
 
     @Test
-    fun mixedUploadCollectsSeveralRoundsAndUploadsOnce() = runTest {
+    fun uploadOnPhoneOpensTheMultiFilePickerAndUploadsOnce() = runTest {
         val rig = Rig(this)
         val b = connected(rig)
         var released = 0
-        b.basketOpen()
-        assertEquals(0, b.state.value.basket)
         rig.files.uploadFiles = UploadSelection(listOf("/cache/a.bin", "/cache/b.bin"), 10, release = { released++ })
-        b.basketAddFiles()
+        b.upload()
         advanceUntilIdle()
-        assertEquals(2, b.state.value.basket)
-        rig.files.uploadFiles = UploadSelection(listOf("/cache/folder"), 5, release = { released++ })
-        b.basketAddFolder()
-        advanceUntilIdle()
-        assertEquals(3, b.state.value.basket)
-        b.basketUpload()
-        advanceUntilIdle()
-        assertEquals(null, b.state.value.basket)
         assertEquals(1, rig.app.transfers.items.value.size)
-        assertEquals(2, released, "every picked round is released after the transfer")
-    }
-
-    @Test
-    fun cancellingMixedUploadReleasesWhatWasPicked() = runTest {
-        val rig = Rig(this)
-        val b = connected(rig)
-        var released = 0
-        rig.files.uploadFiles = UploadSelection(listOf("/cache/a.bin"), release = { released++ })
-        b.basketOpen()
-        b.basketAddFiles()
-        advanceUntilIdle()
-        b.basketCancel()
         assertEquals(1, released)
-        assertEquals(null, b.state.value.basket)
-        assertTrue(rig.app.transfers.items.value.isEmpty())
     }
 
     @Test

@@ -10,7 +10,6 @@ import androidx.compose.ui.draganddrop.DragAndDropTransferAction
 import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.draganddrop.DragAndDropTransferable
 import app.nextdata.protocol.Entry
-import app.nextdata.protocol.EntryKind
 import app.nextdata.state.BrowserViewModel
 import app.nextdata.ui.EntryDragHost
 import kotlinx.coroutines.Dispatchers
@@ -45,16 +44,9 @@ class DesktopEntryDrag : EntryDragHost {
     }
 
     companion object {
-        /** Above this size the file manager would wait too long for a drop: the user is told to use Download. */
-        const val MAX_DRAG_BYTES = 512L * 1024 * 1024
         private const val PREFIX = "nextdata-drag-"
 
         private fun stage(vm: BrowserViewModel, list: List<Entry>): List<File>? {
-            val bytes = list.filter { it.kind == EntryKind.FILE }.sumOf { it.size ?: 0L }
-            if (bytes > MAX_DRAG_BYTES) {
-                vm.dragRefused()
-                return null
-            }
             purgeOld()
             val dir = Files.createTempDirectory(PREFIX).toFile()
             val ok = runBlocking(Dispatchers.IO) { vm.stageForDrag(list, dir.absolutePath) }

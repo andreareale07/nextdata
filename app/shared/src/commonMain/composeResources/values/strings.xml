@@ -36,6 +36,7 @@
     <string name="action_saving">Saving…</string>
     <string name="action_show_secret">Show</string>
     <string name="action_up">Up one level</string>
+    <string name="action_upload_folder">Upload folder</string>
     <string name="action_upload">Upload</string>
 
     <!-- Navigation -->
@@ -151,7 +152,6 @@
     <string name="delete_recursive_warning">Folders are deleted together with everything inside them.</string>
     <string name="delete_irreversible">This cannot be undone.</string>
     <string name="msg_folder_created">Folder “%1$s” created</string>
-    <string name="msg_drag_too_large">Too big to copy by dragging: use Download</string>
     <string name="msg_renamed">Renamed to “%1$s”</string>
     <string name="msg_favorite_added">Added to favorites</string>
     <string name="msg_favorite_removed">Removed from favorites</string>
@@ -472,15 +472,6 @@
         <item quantity="one">%1$d transfer</item>
         <item quantity="other">%1$d transfers</item>
     </plurals>
-    <string name="basket_title">Files and folders to upload</string>
-    <string name="basket_hint">Add files and folders in as many rounds as you like, then upload everything together.</string>
-    <plurals name="basket_count">
-        <item quantity="one">%1$d item selected</item>
-        <item quantity="other">%1$d items selected</item>
-    </plurals>
-    <string name="basket_add_files">Add files…</string>
-    <string name="basket_add_folder">Add a folder…</string>
-    <string name="basket_upload">Upload</string>
     <string name="connect_hint_trust_timeout">The confirmation took too long and the connection timed out. Try again and confirm within about 20 seconds.</string>
     <string name="sort_by">Sort by %1$s</string>
     <string name="settings_theme">Theme</string>

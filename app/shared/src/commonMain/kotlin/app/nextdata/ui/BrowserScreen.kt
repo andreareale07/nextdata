@@ -100,7 +100,7 @@ fun BrowserScreen(
     val gridState = rememberLazyGridState()
     val filterFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
-    val dialogOpen = state.basket != null || newFolder || renaming != null || deleting != null || sheetFor != null || fabSheet || securityOpen || detailsFor != null
+    val dialogOpen = newFolder || renaming != null || deleting != null || sheetFor != null || fabSheet || securityOpen || detailsFor != null
 
     // snackbar feedback; a finished download offers "Show" to open the destination
     val msg = state.message
@@ -174,6 +174,7 @@ fun BrowserScreen(
     val detailsLabel = stringResource(Res.string.details_title)
     val newFolderLabel = stringResource(Res.string.folder_new_title)
     val uploadLabel = stringResource(Res.string.action_upload)
+    val uploadFolderLabel = stringResource(Res.string.action_upload_folder)
     val refreshLabel = stringResource(Res.string.action_refresh)
     val selectAllLabel = stringResource(Res.string.action_select_all)
 
@@ -182,6 +183,7 @@ fun BrowserScreen(
         if (e == null) {
             add(EntryAction(Icons.Outlined.CreateNewFolder, newFolderLabel) { newFolder = true })
             add(EntryAction(Icons.Outlined.UploadFile, uploadLabel) { vm.upload() })
+            if (!vm.mixedUpload) add(EntryAction(Icons.Outlined.UploadFile, uploadFolderLabel) { vm.uploadFolder() })
             add(EntryAction(Icons.Outlined.Refresh, refreshLabel) { vm.refresh() })
             add(EntryAction(Icons.Outlined.SelectAll, selectAllLabel) { vm.selectAll(visible) })
             return@buildList
@@ -339,23 +341,6 @@ fun BrowserScreen(
             scope.launch { vm.delete(list, recursive) }
         })
     }
-    state.basket?.let { n ->
-        AlertDialog(
-            onDismissRequest = { vm.basketCancel() },
-            title = { Text(stringResource(Res.string.basket_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(Res.string.basket_hint), style = MaterialTheme.typography.bodyMedium)
-                    Text(pluralStringResource(Res.plurals.basket_count, n, n), style = MaterialTheme.typography.titleSmall)
-                    if (state.preparing) Text(stringResource(Res.string.upload_preparing), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    androidx.compose.material3.OutlinedButton(onClick = { vm.basketAddFiles() }, enabled = !state.preparing, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.basket_add_files)) }
-                    androidx.compose.material3.OutlinedButton(onClick = { vm.basketAddFolder() }, enabled = !state.preparing, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.basket_add_folder)) }
-                }
-            },
-            confirmButton = { TextButton(onClick = { vm.basketUpload() }, enabled = n > 0 && !state.preparing) { Text(stringResource(Res.string.basket_upload)) } },
-            dismissButton = { TextButton(onClick = { vm.basketCancel() }) { Text(stringResource(Res.string.action_cancel)) } },
-        )
-    }
     if (securityOpen) SecurityDialog(security, vm.profile.name, onDismiss = { securityOpen = false })
     detailsFor?.let { e ->
         AlertDialog(
@@ -401,10 +386,11 @@ fun BrowserScreen(
     if (fabSheet) {
         ModalBottomSheet(onDismissRequest = { fabSheet = false }) {
           Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
-            val items = listOf(
-                Triple(Icons.Outlined.CreateNewFolder, newFolderLabel) { newFolder = true },
-                Triple(Icons.Outlined.UploadFile, uploadLabel) { vm.upload() },
-            )
+            val items = buildList<Triple<androidx.compose.ui.graphics.vector.ImageVector, String, () -> Unit>> {
+                add(Triple(Icons.Outlined.CreateNewFolder, newFolderLabel) { newFolder = true })
+                add(Triple(Icons.Outlined.UploadFile, uploadLabel) { vm.upload() })
+                if (!vm.mixedUpload) add(Triple(Icons.Outlined.UploadFile, uploadFolderLabel) { vm.uploadFolder() })
+            }
             items.forEach { (icon, label, act) ->
                 ListItem(
                     headlineContent = { Text(label) },
@@ -424,7 +410,6 @@ private fun messageText(m: UiMessage): String = when (m) {
     is UiMessage.Error -> errorText(m.error)
     is UiMessage.FolderCreated -> stringResource(Res.string.msg_folder_created, m.name)
     is UiMessage.Renamed -> stringResource(Res.string.msg_renamed, m.name)
-    is UiMessage.DragTooLarge -> stringResource(Res.string.msg_drag_too_large)
     is UiMessage.Moved -> pluralStringResource(Res.plurals.msg_moved, m.count, m.count, m.to)
     is UiMessage.Deleted -> pluralStringResource(Res.plurals.msg_deleted, m.count, m.count)
     is UiMessage.DownloadQueued -> pluralStringResource(Res.plurals.msg_download_queued, m.count, m.count)
