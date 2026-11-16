@@ -219,6 +219,27 @@ fn conformance(h: &H, pid: &str, label: &str) {
     let l2 = h.ok("session.list", json!({"session": s, "ref": rd["entry"]["ref"]}));
     assert_eq!(names(&l2), vec!["deeper", "b.bin"]);
 
+    // ---- move into another folder (never replaces, never into itself)
+    let target = h.ok("session.mkdir", json!({"session": s, "parent_ref": sb, "name": "mv-target"}))["entry"]["ref"].as_str().unwrap().to_string();
+    let file_ref = rn["entry"]["ref"].as_str().unwrap().to_string();
+    let dir_ref = rd["entry"]["ref"].as_str().unwrap().to_string();
+    assert_eq!(h.ok("session.move", json!({"session": s, "refs": [file_ref, dir_ref], "dest_ref": target}))["moved"], 2);
+    let lt = h.ok("session.list", json!({"session": s, "ref": target}));
+    assert_eq!(names(&lt), vec!["sub2", "renamed.txt"]);
+    assert_eq!(h.code("session.move", json!({"session": s, "refs": [target], "dest_ref": join_ref(&target, "sub2")})), "INVALID_ARGUMENT"); // into its own subfolder
+    assert_eq!(h.code("session.move", json!({"session": s, "refs": [target], "dest_ref": target})), "INVALID_ARGUMENT"); // into itself
+    assert_eq!(h.code("session.move", json!({"session": s, "refs": [join_ref(&target, "renamed.txt")], "dest_ref": join_ref(&target, "renamed.txt")})), "INVALID_ARGUMENT"); // destination is a file
+    assert_eq!(h.code("session.move", json!({"session": s, "refs": ["/"], "dest_ref": target})), "POLICY_DENIED");
+    // a name that already exists at the destination is never replaced
+    let again = src.join("renamed.txt");
+    fs::write(&again, b"second").unwrap();
+    h.ok("transfer.upload", json!({"session": s, "local_paths": [again.to_string_lossy()], "parent_ref": sb, "collision": "fail"}));
+    assert_eq!(h.code("session.move", json!({"session": s, "refs": [join_ref(&sb, "renamed.txt")], "dest_ref": target})), "ALREADY_EXISTS");
+    let still = h.ok("session.list", json!({"session": s, "ref": sb}));
+    assert!(names(&still).contains(&"renamed.txt".to_string()), "the file that could not move stays where it was");
+    // and back up: moving to the parent works too
+    assert_eq!(h.ok("session.move", json!({"session": s, "refs": [join_ref(&target, "sub2")], "dest_ref": sb}))["moved"], 1);
+
     // ---- big file with progress, then cancel
     let big = src.join("big.bin");
     fs::write(&big, rand_bytes(20 * 1024 * 1024, 9)).unwrap();

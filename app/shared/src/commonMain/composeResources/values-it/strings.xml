@@ -151,6 +151,7 @@
     <string name="delete_recursive_warning">Le cartelle vengono eliminate insieme a tutto il loro contenuto.</string>
     <string name="delete_irreversible">L’operazione non può essere annullata.</string>
     <string name="msg_folder_created">Cartella “%1$s” creata</string>
+    <string name="msg_drag_too_large">Troppo grande per essere copiato trascinando: usa Scarica</string>
     <string name="msg_renamed">Rinominato in “%1$s”</string>
     <string name="msg_favorite_added">Aggiunto ai preferiti</string>
     <string name="msg_favorite_removed">Rimosso dai preferiti</string>
@@ -174,6 +175,10 @@
     <plurals name="delete_body_many">
         <item quantity="one">%1$d elemento verrà eliminato dal server.</item>
         <item quantity="other">%1$d elementi verranno eliminati dal server.</item>
+    </plurals>
+    <plurals name="msg_moved">
+        <item quantity="one">%1$d elemento spostato in «%2$s»</item>
+        <item quantity="other">%1$d elementi spostati in «%2$s»</item>
     </plurals>
     <plurals name="msg_deleted">
         <item quantity="one">%1$d elemento eliminato</item>

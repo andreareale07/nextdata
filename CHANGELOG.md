@@ -5,6 +5,9 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+### Aggiunto
+- **Trascinamento su desktop** degli elementi selezionati: rilasciati su una cartella dell'elenco (o su una cartella del percorso in alto) vengono **spostati**; rilasciati in Esplora file vengono **copiati sul PC**. Nuovo comando del motore `session.move` (non sostituisce mai nulla). Il trascinamento fuori dall'app è limitato a 512 MiB; oltre si usa «Scarica».
+
 ## [0.1.0-beta.4]
 
 Novità rispetto a 0.1.0-beta.3: una sola voce «Carica», avanzamento dei trasferimenti sempre visibile e trasferimenti che non si interrompono tornando ai profili.

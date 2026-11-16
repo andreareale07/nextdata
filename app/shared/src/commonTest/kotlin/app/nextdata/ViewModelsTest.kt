@@ -424,6 +424,35 @@ class ViewModelsTest {
     }
 
     @Test
+    fun movingEntriesIntoAFolderKeepsNamesAndNeverReplaces() = runTest {
+        val rig = Rig(this)
+        val b = connected(rig)
+        assertNull(b.mkdir("target"))
+        advanceUntilIdle()
+        assertNull(b.mkdir("other"))
+        advanceUntilIdle()
+        val target = b.state.value.entries.first { it.name == "target" }
+        val other = b.state.value.entries.first { it.name == "other" }
+        // an entry cannot go into itself, and a folder cannot go into its own subfolder
+        assertNull(b.move(listOf(target), target))
+        val before = b.state.value.entries.map { it.name }.toSet()
+        assertNull(b.move(listOf(other), target))
+        advanceUntilIdle()
+        val after = b.state.value.entries.map { it.name }.toSet()
+        assertEquals(before - "other", after, "the folder left this listing")
+        assertIs<UiMessage.Moved>(b.state.value.message)
+        // it really is in the target now
+        b.open(target.ref)
+        advanceUntilIdle()
+        assertTrue(b.state.value.entries.any { it.name == "other" })
+        // drag state is just state: begin/end
+        b.beginDrag(listOf(other))
+        assertEquals(listOf(other), b.dragging.value)
+        b.endDrag()
+        assertNull(b.dragging.value)
+    }
+
+    @Test
     fun transfersSummaryCombinesAllRunningTransfers() {
         fun item(id: Long, dir: TransferDirection, bytes: Long, total: Long?, done: Int, all: Int, speed: Long?) = TransferItem(
             id, dir, listOf("x"), "p", TransferStatus.Running, ProgressInfo(bytes, total, null, done, all), speedBps = speed,

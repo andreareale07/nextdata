@@ -26,6 +26,9 @@ sealed interface UiMessage {
     data class Error(val error: ErrInfo) : UiMessage
     data class FolderCreated(val name: String) : UiMessage
     data class Renamed(val name: String) : UiMessage
+    data class Moved(val count: Int, val to: String) : UiMessage
+    /** Too big to be copied to the file manager by dragging: use Download. */
+    data object DragTooLarge : UiMessage
     data class Deleted(val count: Int) : UiMessage
     data class DownloadQueued(val count: Int) : UiMessage
     data class UploadQueued(val count: Int) : UiMessage
@@ -324,6 +327,58 @@ class BrowserViewModel(
         return r.errorOrNull
     }
 
+    /**
+     * Moves [entries] into the folder [dest] (drag & drop inside the app). Nothing is replaced: a name that exists
+     * there stops the move with ALREADY_EXISTS (items before it were moved). Always refreshes the listing.
+     */
+    suspend fun move(entries: List<Entry>, dest: Entry): ErrInfo? =
+        if (dest.kind != EntryKind.DIR) null else moveInto(entries, dest.ref, dest.name)
+
+    /** Same as [move] for a destination known only by ref and name (a breadcrumb segment). */
+    suspend fun moveInto(entries: List<Entry>, destRef: String, destName: String): ErrInfo? {
+        val movable = entries.filter { it.ref != destRef && parentOf(it.ref) != destRef }
+        if (movable.isEmpty()) return null
+        _state.update { it.copy(busy = true) }
+        val r = outcome { client.move(sessionId, movable.map { it.ref }, destRef) }
+        _state.update { it.copy(busy = false, selection = emptySet()) }
+        when (r) {
+            is Outcome.Success -> if (r.value > 0) _state.update { it.copy(message = UiMessage.Moved(r.value, destName)) }
+            is Outcome.Failure -> _state.update { it.copy(message = UiMessage.Error(r.error)) }
+        }
+        refresh()
+        return r.errorOrNull
+    }
+
+    // ------------------------------------------------------------------ drag & drop (desktop)
+
+    private val _dragging = MutableStateFlow<List<Entry>?>(null)
+
+    /** Entries being dragged from this list right now (null = no drag of ours): lets folders accept them as a move. */
+    val dragging: StateFlow<List<Entry>?> = _dragging.asStateFlow()
+
+    fun beginDrag(entries: List<Entry>) {
+        _dragging.value = entries.takeIf { it.isNotEmpty() }
+    }
+
+    fun endDrag() {
+        _dragging.value = null
+    }
+
+    fun dragRefused() = _state.update { it.copy(message = UiMessage.DragTooLarge) }
+
+    /**
+     * Dropped on the file manager: copies [entries] into [stagingDir] and returns true when everything arrived. Called
+     * from the drop (blocking the caller until it finishes), never for a drag that stays inside the app.
+     */
+    suspend fun stageForDrag(entries: List<Entry>, stagingDir: String): Boolean {
+        _state.update { it.copy(preparing = true) }
+        try {
+            return outcome { client.download(sessionId, entries.map { it.ref }, stagingDir, "rename", null) } is Outcome.Success
+        } finally {
+            _state.update { it.copy(preparing = false) }
+        }
+    }
+
     suspend fun delete(entries: List<Entry>, recursive: Boolean): ErrInfo? {
         if (entries.isEmpty()) return null
         _state.update { it.copy(busy = true) }
@@ -448,6 +503,8 @@ class BrowserViewModel(
     }
 
     /** Last segment of a *local* path, for display only. */
+    private fun parentOf(ref: String): String = ref.trimEnd('/').substringBeforeLast('/', "").ifEmpty { "/" }
+
     private fun displayName(path: String): String = path.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\').ifEmpty { path }
 
     /** Opens the destination of a finished download (file manager). */

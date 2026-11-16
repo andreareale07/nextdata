@@ -178,6 +178,12 @@ fun FileCollection(
         }
     }
 
+    // desktop: rows can be dragged (to the PC / onto folders) and folders accept drops
+    val dragHost = LocalEntryDrag.current
+    @Composable
+    fun dragExtra(e: Entry): Modifier = if (dragHost == null || touch) Modifier else
+        dragHost.source(vm) { dragSet(e, state.selection, visible) }.folderDropTarget(e.ref, e.name, e.kind == EntryKind.DIR, vm)
+
     val err = state.error
     val body: @Composable () -> Unit = {
         when {
@@ -209,6 +215,7 @@ fun FileCollection(
             ) {
                 items(visible, key = { it.ref }) { e ->
                     GridTile(
+                        extra = dragExtra(e),
                         entry = e,
                         selected = e.ref in state.selection,
                         lead = e.ref == state.lead,
@@ -224,6 +231,7 @@ fun FileCollection(
             else -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = if (touch) 96.dp else 8.dp)) {
                 items(visible, key = { it.ref }) { e ->
                     EntryRow(
+                        extra = dragExtra(e),
                         entry = e,
                         tag = tag,
                         phoneRows = phoneRows,
@@ -332,6 +340,7 @@ private fun EntryRow(
     onLongClick: () -> Unit,
     onDoubleClick: () -> Unit,
     onToggle: () -> Unit,
+    extra: Modifier = Modifier,
 ) {
     val spec = LocalDensitySpec.current
     val category = FileKinds.categoryOf(entry)
@@ -351,6 +360,7 @@ private fun EntryRow(
             .fillMaxWidth()
             .heightIn(min = spec.rowHeight)
             .background(bg)
+            .then(extra)
             .combinedClickable(
                 interactionSource = interaction,
                 indication = androidx.compose.material3.ripple(),
@@ -407,6 +417,7 @@ private fun GridTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDoubleClick: () -> Unit,
+    extra: Modifier = Modifier,
 ) {
     val spec = LocalDensitySpec.current
     val category = FileKinds.categoryOf(entry)
@@ -417,6 +428,7 @@ private fun GridTile(
             .clip(shape)
             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
             .then(if (lead && !touch) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape) else Modifier)
+            .then(extra)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick, onDoubleClick = if (touch) null else onDoubleClick)
             .semantics(mergeDescendants = true) {
                 this.selected = selected

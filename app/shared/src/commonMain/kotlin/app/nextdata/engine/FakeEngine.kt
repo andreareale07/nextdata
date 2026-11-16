@@ -268,6 +268,25 @@ class FakeEngine(
                 node.name = name
                 buildJsonObject { put("entry", Codec.json.encodeToJsonElement(Entry.serializer(), entryOf(node))) }
             }
+            "session.move" -> {
+                sessionProfile(str("session"))
+                if (latencyMs > 0) delay(latencyMs)
+                val dest = nodes[str("dest_ref")] ?: err(ErrorCodes.NOT_FOUND)
+                if (dest.kind != EntryKind.DIR) err(ErrorCodes.INVALID_ARGUMENT)
+                var moved = 0
+                for (ref in strList("refs")) {
+                    val node = nodes[ref] ?: err(ErrorCodes.NOT_FOUND, "path" to ref)
+                    var up: Node? = dest
+                    while (up != null) { if (up === node) err(ErrorCodes.INVALID_ARGUMENT, "path" to ref); up = up.parent }
+                    if (node.parent === dest) continue
+                    if (dest.children.any { it.name == node.name }) err(ErrorCodes.ALREADY_EXISTS, "name" to node.name)
+                    node.parent?.children?.remove(node)
+                    dest.children.add(node)
+                    node.parent = dest
+                    moved++
+                }
+                buildJsonObject { put("moved", moved) }
+            }
             "session.delete" -> {
                 sessionProfile(str("session"))
                 val refs = strList("refs")

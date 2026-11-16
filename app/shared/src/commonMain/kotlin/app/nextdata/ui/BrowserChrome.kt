@@ -121,7 +121,7 @@ fun PlacesMenu(expanded: Boolean, state: BrowserState, recents: List<app.nextdat
 // ======================================================================== breadcrumb (clickable + editable)
 
 @Composable
-fun BreadcrumbBar(state: BrowserState, onOpen: (String) -> Unit, modifier: Modifier = Modifier, onCopyPath: (String) -> Unit = {}) {
+fun BreadcrumbBar(state: BrowserState, onOpen: (String) -> Unit, modifier: Modifier = Modifier, onCopyPath: (String) -> Unit = {}, vm: BrowserViewModel? = null) {
     val scroll = rememberScrollState()
     var editing by remember { mutableStateOf(false) }
     var notFound by remember { mutableStateOf(false) }
@@ -158,6 +158,8 @@ fun BreadcrumbBar(state: BrowserState, onOpen: (String) -> Unit, modifier: Modif
                 val crumbs = state.breadcrumbs
                 crumbs.forEachIndexed { i, c ->
                     val last = i == crumbs.lastIndex
+                    // desktop: dropping dragged entries on a parent folder moves them up
+                    val drop = if (vm != null && !last && LocalEntryDrag.current != null) Modifier.folderDropTarget(c.ref, c.name, true, vm) else Modifier
                     Text(
                         c.name,
                         style = MaterialTheme.typography.bodyMedium,
@@ -166,6 +168,7 @@ fun BreadcrumbBar(state: BrowserState, onOpen: (String) -> Unit, modifier: Modif
                         maxLines = 1,
                         modifier = Modifier
                             .clip(MaterialTheme.shapes.small)
+                            .then(drop)
                             .then(if (last) Modifier else Modifier.clickable(role = Role.Button) { onOpen(c.ref) })
                             .heightIn(min = 32.dp)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -432,7 +435,7 @@ fun DesktopAddressRow(
     Column {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             NdIconButton(Icons.Outlined.ArrowUpward, stringResource(Res.string.action_up), vm::up, enabled = state.canGoUp, tooltip = stringResource(Res.string.action_up) + " (Alt+↑)")
-            Box(Modifier.weight(1f)) { BreadcrumbBar(state, onOpen = vm::open, onCopyPath = onCopyPath) }
+            Box(Modifier.weight(1f)) { BreadcrumbBar(state, onOpen = vm::open, onCopyPath = onCopyPath, vm = vm) }
             Spacer(Modifier.width(8.dp))
             FilterField(state.filter, vm::setFilter, Modifier.width(220.dp), filterFocus, onEscape = { vm.setFilter("") })
         }

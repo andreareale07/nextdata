@@ -158,12 +158,15 @@ fun main(args: Array<String>) {
             androidx.compose.runtime.key(tag) {
                 DesktopMenuBar(controller, settings.showHidden, settings.viewMode == app.nextdata.state.ViewMode.Grid, settings.detailsOpen)
             }
+            val entryDrag = remember { DesktopEntryDrag() }
             val dropTarget = remember {
                 object : DragAndDropTarget {
-                    override fun onStarted(event: DragAndDropEvent) { dragging = true }
+                    // a drag of the app's own entries (move / drag out) is not an upload: no upload overlay, no upload
+                    override fun onStarted(event: DragAndDropEvent) { dragging = controller.browser.value?.dragging?.value == null }
                     override fun onEnded(event: DragAndDropEvent) { dragging = false }
                     override fun onDrop(event: DragAndDropEvent): Boolean {
                         dragging = false
+                        if (controller.browser.value?.dragging?.value != null) return false
                         val data = event.dragData()
                         if (data is DragData.FilesList) {
                             val dropped = data.readFiles().mapNotNull(::fileUriToPath).let(::dropRoots)
@@ -179,7 +182,7 @@ fun main(args: Array<String>) {
                 }
             }
             Box(Modifier.fillMaxSize().dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dropTarget)) {
-                NextDataApp(controller)
+                androidx.compose.runtime.CompositionLocalProvider(app.nextdata.ui.LocalEntryDrag provides entryDrag) { NextDataApp(controller) }
                 if (dragging && browser != null) DropOverlay()
             }
         }

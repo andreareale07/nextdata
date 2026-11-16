@@ -151,6 +151,7 @@
     <string name="delete_recursive_warning">Folders are deleted together with everything inside them.</string>
     <string name="delete_irreversible">This cannot be undone.</string>
     <string name="msg_folder_created">Folder “%1$s” created</string>
+    <string name="msg_drag_too_large">Too big to copy by dragging: use Download</string>
     <string name="msg_renamed">Renamed to “%1$s”</string>
     <string name="msg_favorite_added">Added to favorites</string>
     <string name="msg_favorite_removed">Removed from favorites</string>
@@ -174,6 +175,10 @@
     <plurals name="delete_body_many">
         <item quantity="one">%1$d item will be deleted from the server.</item>
         <item quantity="other">%1$d items will be deleted from the server.</item>
+    </plurals>
+    <plurals name="msg_moved">
+        <item quantity="one">%1$d item moved to “%2$s”</item>
+        <item quantity="other">%1$d items moved to “%2$s”</item>
     </plurals>
     <plurals name="msg_deleted">
         <item quantity="one">%1$d item deleted</item>

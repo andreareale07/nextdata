@@ -241,7 +241,7 @@ fun BrowserScreen(
                 },
             ) { pad ->
                 Column(Modifier.padding(pad).fillMaxSize()) {
-                    BreadcrumbBar(state, onOpen = vm::open, onCopyPath = { copy(it); vm.notifyPathCopied() })
+                    BreadcrumbBar(state, onOpen = vm::open, onCopyPath = { copy(it); vm.notifyPathCopied() }, vm = vm)
                     AnimatedVisibility(filterOpen) {
                         LaunchedEffect(Unit) { runCatching { filterFocus.requestFocus() } }
                         FilterField(state.filter, vm::setFilter, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), filterFocus, onEscape = { vm.setFilter(""); filterOpen = false })
@@ -424,6 +424,8 @@ private fun messageText(m: UiMessage): String = when (m) {
     is UiMessage.Error -> errorText(m.error)
     is UiMessage.FolderCreated -> stringResource(Res.string.msg_folder_created, m.name)
     is UiMessage.Renamed -> stringResource(Res.string.msg_renamed, m.name)
+    is UiMessage.DragTooLarge -> stringResource(Res.string.msg_drag_too_large)
+    is UiMessage.Moved -> pluralStringResource(Res.plurals.msg_moved, m.count, m.count, m.to)
     is UiMessage.Deleted -> pluralStringResource(Res.plurals.msg_deleted, m.count, m.count)
     is UiMessage.DownloadQueued -> pluralStringResource(Res.plurals.msg_download_queued, m.count, m.count)
     is UiMessage.UploadQueued -> pluralStringResource(Res.plurals.msg_upload_queued, m.count, m.count)

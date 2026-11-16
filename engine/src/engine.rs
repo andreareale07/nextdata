@@ -374,6 +374,43 @@ impl Inner {
                 let st = s.provider.stat(&to).await?;
                 Ok(json!({"entry": transfer::entry_of(&parent, st)}))
             }
+            "session.move" => {
+                // Moves entries into another folder of the same session (same provider: a rename with a new parent).
+                // Never replaces anything (the provider answers ALREADY_EXISTS) and never moves a folder into itself.
+                let s = self.session(&req_str(&a, "session")?)?;
+                let refs: Vec<String> = str_list(&a, "refs")?.iter().map(|r| norm_ref(r)).collect::<Result<_>>()?;
+                let dest = norm_ref(&req_str(&a, "dest_ref")?)?;
+                if refs.is_empty() || refs.iter().any(|r| r == "/") {
+                    return Err(NdError::new(Code::PolicyDenied).with("rule", "move_root"));
+                }
+                for r in &refs {
+                    if &dest == r || dest.starts_with(&format!("{}/", r.trim_end_matches('/'))) {
+                        return Err(NdError::invalid("dest_ref").with("rule", "move_into_itself").with("path", r.clone()));
+                    }
+                }
+                let dst = s.provider.stat(&dest).await?;
+                if dst.kind != EntryKind::Dir {
+                    return Err(NdError::invalid("dest_ref").with("path", dest.clone()));
+                }
+                let pr = Progress { cb: Arc::new(|_| {}), cancel: token };
+                let mut moved = 0u64;
+                let mut result: Result<()> = Ok(());
+                for r in &refs {
+                    let name = r.rsplit('/').next().unwrap_or("").to_string();
+                    let to = join(&dest, &name);
+                    if &to == r {
+                        continue; // already there
+                    }
+                    if let Err(e) = pr.run(async { s.provider.rename(r, &to).await }).await {
+                        result = Err(e.with("moved", moved.to_string()));
+                        break;
+                    }
+                    moved += 1;
+                }
+                *s.cache.lock().unwrap() = None;
+                result?;
+                Ok(json!({"moved": moved}))
+            }
             "session.delete" => {
                 let s = self.session(&req_str(&a, "session")?)?;
                 let refs: Vec<String> = str_list(&a, "refs")?.iter().map(|r| norm_ref(r)).collect::<Result<_>>()?;

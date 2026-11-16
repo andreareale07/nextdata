@@ -53,6 +53,7 @@ SERVER_ANOMALY, LIMIT_EXCEEDED, IMPORT_INVALID, PASSPHRASE_INVALID, NOT_INITIALI
 | `open.*`, `cache.*` | vedi `docs/open-edit.md` | workspace locale dei file aperti (prepare/check/save/import/recover/list/export/discard) |
 | `session.mkdir` | `{session, parent_ref, name}` | `{entry:Entry}` |
 | `session.rename` | `{session, ref, new_name}` | `{entry:Entry}` |
+| `session.move` | `{session, refs[], dest_ref}` | `{moved:int}` — sposta in un'altra cartella della stessa sessione; non sostituisce mai (`ALREADY_EXISTS`), rifiuta la radice (`POLICY_DENIED`), una cartella dentro se stessa o un bersaglio che non è una cartella (`INVALID_ARGUMENT`); se un elemento fallisce, quelli precedenti sono già spostati (`params.moved`) |
 | `session.delete` | `{session, refs:[string], recursive:bool}` | `{deleted:int}` (progress per item) |
 | `session.close` | `{session}` | `{}` |
 | `transfer.download` | `{session, refs:[string], dest_dir, collision:"rename"\|"skip"\|"fail"}` | `{local_paths:[string]}` (cartelle ricorsive; `.part` + rename no-replace; progress) |

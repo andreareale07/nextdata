@@ -129,6 +129,14 @@ class EngineClient(val engine: Engine) {
         })["entry"]!!,
     )
 
+    /** Moves [refs] into the folder [destRef] (never replaces; the engine refuses a folder into itself). Returns how many moved. */
+    suspend fun move(session: String, refs: List<String>, destRef: String): Int =
+        call("session.move", buildJsonObject {
+            put("session", session)
+            put("refs", kotlinx.serialization.json.JsonArray(refs.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            put("dest_ref", destRef)
+        })["moved"]?.let { (it as kotlinx.serialization.json.JsonPrimitive).content.toInt() } ?: 0
+
     suspend fun delete(session: String, refs: List<String>, recursive: Boolean, onProgress: ((ProgressInfo) -> Unit)? = null): Int =
         call(
             "session.delete",
