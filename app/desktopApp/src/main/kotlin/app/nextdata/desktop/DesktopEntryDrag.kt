@@ -70,6 +70,20 @@ internal class FilesOnDemand(private val produce: () -> List<File>?) : Transfera
     override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == DataFlavor.javaFileListFlavor
     override fun getTransferData(flavor: DataFlavor): Any {
         if (!isDataFlavorSupported(flavor)) throw UnsupportedFlavorException(flavor)
-        return produce() ?: throw IOException("the files could not be prepared")
+        val t0 = System.currentTimeMillis()
+        trace("drop asked for the files")
+        val files = try {
+            produce()
+        } catch (e: Throwable) {
+            trace("failed: $e")
+            throw e
+        }
+        trace("${files?.size ?: 0} item(s) ready after ${System.currentTimeMillis() - t0} ms")
+        return files ?: throw IOException("the files could not be prepared")
+    }
+
+    /** Diagnostic trail (no names, no paths of the server) in the temp folder: `nextdata-drag.log`. */
+    private fun trace(msg: String) {
+        runCatching { File(System.getProperty("java.io.tmpdir"), "nextdata-drag.log").appendText("${java.time.LocalTime.now()} $msg\n") }
     }
 }
