@@ -216,7 +216,7 @@ class AppController(
 
     // ------------------------------------------------------------------ connection
 
-    fun connect(profile: Profile, reconnectFrom: String? = null) {
+    fun connect(profile: Profile, reconnectFrom: String? = null, resumeRef: String? = null) {
         if (_connection.value is ConnectionState.Connecting) return
         disconnect(navigateToProfiles = false)
         _connection.value = ConnectionState.Connecting(profile)
@@ -228,7 +228,8 @@ class AppController(
                         profile, r.value.session, r.value.homeRef, client, scope, settings.state, transfers, env.files,
                         // A start folder configured in the profile always wins; the last visited folder is restored
                         // only for profiles without one (otherwise an old "last folder" sent users back to the root).
-                        initialRef = settings.state.value.lastRefs[profile.id].takeIf { profile.basePath.isBlank() },
+                        // On a reconnect the folder being browsed always wins (e.g. coming back from the file picker).
+                        initialRef = resumeRef ?: settings.state.value.lastRefs[profile.id].takeIf { profile.basePath.isBlank() },
                         askDownloadLocation = { settings.state.value.askDownloadLocation },
                         onLocation = { ref, name -> rememberLocation(profile.id, ref, name) },
                         opener = opener,
@@ -315,7 +316,7 @@ class AppController(
     /** Opens a fresh session for the profile currently browsed (after the connection was lost). */
     fun reconnect() {
         val b = _browser.value ?: return
-        connect(b.profile, reconnectFrom = b.sessionId)
+        connect(b.profile, reconnectFrom = b.sessionId, resumeRef = b.state.value.ref)
     }
 
     private var probing = false

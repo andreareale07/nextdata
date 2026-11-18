@@ -13,10 +13,12 @@ import app.nextdata.protocol.SortKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -363,17 +365,47 @@ class BrowserViewModel(
     }
 
 
+    private val dragOuts = MutableStateFlow(0)
+
+
     /**
-     * Dropped on the file manager: copies [entries] into [stagingDir] and returns true when everything arrived. Called
-     * from the drop (blocking the caller until it finishes), never for a drag that stays inside the app.
+     * Runs a drag to the file manager of this session: [block] gets the session id, returns when Windows has finished
+     * copying and gives the result code ([failure] maps a code to an error, null = no error). While it runs the session
+     * stays open even if the user leaves the profile. Once the file manager really copies, an item with progress and a
+     * cancel button appears in the transfers list ([poll] gives `[bytes, total, copying]`, [cancel] stops the copy).
      */
-    suspend fun stageForDrag(entries: List<Entry>, stagingDir: String): Boolean {
-        _state.update { it.copy(preparing = true) }
-        try {
-            return outcome { client.download(sessionId, entries.map { it.ref }, stagingDir, "rename", null) } is Outcome.Success
-        } finally {
-            _state.update { it.copy(preparing = false) }
+    fun runDragOut(names: List<String>, poll: () -> LongArray?, cancel: () -> Unit, failure: (Int) -> ErrInfo?, onDropped: () -> Unit, block: (sessionId: String) -> Int): Int {
+        dragOuts.update { it + 1 }
+        val shown = java.util.concurrent.atomic.AtomicLong(-1)
+        var released = false
+        val ticker = scope.launch {
+            while (true) {
+                delay(300)
+                val p = try { poll() } catch (t: Throwable) { onDropped(); return@launch } ?: continue
+                // the drag itself is over (Explorer may still be copying): the app takes drops and drags again at once
+                if (p.size >= 4 && p[3] == 1L && !released) {
+                    released = true
+                    onDropped()
+                }
+                if (p.size < 3 || p[2] != 1L) continue
+                if (shown.get() < 0) shown.set(transfers.beginExternal(profile.name, names, cancel))
+                transfers.reportExternal(shown.get(), p[0], p[1].takeIf { it > 0 })
+            }
         }
+        var code = -1
+        try {
+            code = block(sessionId)
+            return code
+        } finally {
+            ticker.cancel()
+            if (shown.get() >= 0) transfers.endExternal(shown.get(), failure(code), cancelled = code == 0)
+            dragOuts.update { it - 1 }
+        }
+    }
+
+    /** The drag to the file manager could not be prepared: tells the user why. */
+    fun dragOutFailed(error: ErrInfo) {
+        _state.update { it.copy(message = UiMessage.Error(error)) }
     }
 
     suspend fun delete(entries: List<Entry>, recursive: Boolean): ErrInfo? {
@@ -506,6 +538,7 @@ class BrowserViewModel(
                 // a transfer that was started must finish even if the user goes back to the profiles: the session is
                 // closed only when nothing is using it any more
                 transfers.awaitIdle(sessionId)
+                dragOuts.first { it == 0 }
                 outcome { client.closeSession(sessionId) }
             }
         }

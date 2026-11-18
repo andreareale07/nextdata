@@ -35,6 +35,12 @@ fn sink() -> Sink {
     })
 }
 
+/// Runs `f` with the engine (used by the native drag-out, which lives in its own module).
+#[cfg(windows)]
+pub fn with_engine<R>(f: impl FnOnce(&Engine) -> R) -> R {
+    f(engine())
+}
+
 fn engine() -> &'static Arc<Engine> {
     ENGINE.get_or_init(|| Engine::new(sink()))
 }

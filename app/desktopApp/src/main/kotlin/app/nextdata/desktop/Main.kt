@@ -108,10 +108,6 @@ fun fileUriToPath(uri: String): String? = try {
 
 @OptIn(ExperimentalComposeUiApi::class)
 fun main(args: Array<String>) {
-    // Dragging entries out to the file manager copies them from the server at the moment of the drop. AWT gives the
-    // data conversion only ~10 s by default, so a folder that takes longer was silently dropped: allow up to an hour.
-    // Must be set before AWT starts.
-    System.setProperty("sun.awt.datatransfer.timeout", "3600000")
     val fake = "--fake" in args || System.getenv("ND_FAKE_ENGINE") == "1"
     runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
     val paths = DesktopPaths.resolve()

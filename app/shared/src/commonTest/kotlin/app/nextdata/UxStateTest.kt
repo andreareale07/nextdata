@@ -82,6 +82,24 @@ class UxStateTest {
     }
 
     @Test
+    fun reconnectingKeepsTheFolderBeingBrowsedEvenWithAStartFolder() = runTest {
+        val rig = Rig(this)
+        rig.app.boot()
+        // e.g. coming back from the file picker after "Upload": the session is re-opened, the user must stay where they were
+        val p = rig.app.profiles.state.value.profiles.first { it.id == "p2" }
+        assertTrue(p.basePath.isNotBlank())
+        rig.app.connect(p)
+        advanceUntilIdle()
+        val vm = assertNotNull(rig.app.browser.value)
+        val dir = vm.state.value.entries.first { it.kind == "dir" }
+        vm.open(dir.ref)
+        advanceUntilIdle()
+        rig.app.reconnect()
+        advanceUntilIdle()
+        assertEquals(dir.ref, rig.app.browser.value!!.state.value.ref)
+    }
+
+    @Test
     fun configuredStartFolderWinsOverLastVisitedFolder() = runTest {
         val rig = Rig(this)
         rig.app.boot()

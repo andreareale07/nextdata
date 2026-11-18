@@ -1582,6 +1582,8 @@ dependencies = [
  "tokio-util",
  "url",
  "webpki-roots",
+ "windows",
+ "windows-core",
  "x509-parser",
  "zeroize",
 ]

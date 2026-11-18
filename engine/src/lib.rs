@@ -2,6 +2,8 @@
 pub mod bridge;
 pub mod crypto;
 pub mod dates;
+#[cfg(windows)]
+pub mod dragout;
 pub mod engine;
 pub mod error;
 pub mod journal;

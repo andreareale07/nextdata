@@ -100,6 +100,11 @@ fn str_list(a: &Value, k: &str) -> Result<Vec<String>> {
 }
 
 impl Engine {
+    /// What a drag to Windows Explorer needs: the runtime to run reads on and the session's provider.
+    pub fn drag_source(&self, session: &str) -> Result<(tokio::runtime::Handle, Arc<dyn Provider>)> {
+        Ok((self.rt.handle().clone(), self.inner.session(session)?.provider.clone()))
+    }
+
     pub fn new(sink: Sink) -> Arc<Engine> {
         let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).clamp(2, 4);
         let rt = tokio::runtime::Builder::new_multi_thread()

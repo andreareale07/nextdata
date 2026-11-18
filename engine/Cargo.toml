@@ -41,5 +41,11 @@ webpki-roots = "1.0.12"
 x509-parser = "0.18.1"
 zeroize = "1.9.1"
 
+[target.'cfg(windows)'.dependencies]
+# Trascinamento verso Esplora file con file virtuali (OLE): src/dragout. La stessa versione e gia nel lock (da pageant/sspi).
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# la macro #[implement] genera percorsi ::windows_core::
+windows-core = "0.62.2"
+
 [dev-dependencies]
 tempfile = "3.27.0"

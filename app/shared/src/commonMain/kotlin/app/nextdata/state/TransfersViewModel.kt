@@ -177,6 +177,46 @@ class TransfersViewModel(
         return id
     }
 
+    // ---- copies done by the system (drag to the file manager): no engine job, only what the list shows
+
+    private val externalMeters = HashMap<Long, Pair<SpeedMeter, kotlin.time.TimeMark>>()
+
+    /** Adds a running item for a copy the file manager performs; [onCancel] runs when the user cancels it here. */
+    fun beginExternal(profileName: String, names: List<String>, onCancel: () -> Unit): Long {
+        val id = nextId++
+        _items.update { it + TransferItem(id, TransferDirection.Download, names, profileName, status = TransferStatus.Running) }
+        externalMeters[id] = SpeedMeter() to TimeSource.Monotonic.markNow()
+        val job = Job()
+        job.invokeOnCompletion { cause ->
+            if (cause is CancellationException) {
+                onCancel()
+                update(id) { if (it.status.isActive) it.copy(status = TransferStatus.Cancelled, speedBps = null, etaSec = null) else it }
+            }
+        }
+        jobs[id] = job
+        return id
+    }
+
+    fun reportExternal(id: Long, bytes: Long, total: Long?) {
+        val (meter, start) = externalMeters[id] ?: return
+        val (bps, eta) = meter.sample(start.elapsedNow().inWholeMilliseconds, bytes, total)
+        update(id) { if (it.status.isActive) it.copy(progress = ProgressInfo(bytes = bytes, total = total), speedBps = bps ?: it.speedBps, etaSec = eta) else it }
+    }
+
+    /** The copy is over: [error] null = done (or [cancelled]). */
+    fun endExternal(id: Long, error: ErrInfo?, cancelled: Boolean) {
+        externalMeters.remove(id)
+        (jobs[id] as? kotlinx.coroutines.CompletableJob)?.complete()
+        update(id) {
+            if (it.status != TransferStatus.Running) it
+            else when {
+                error != null -> it.copy(status = TransferStatus.Failed(error), speedBps = null, etaSec = null)
+                cancelled -> it.copy(status = TransferStatus.Cancelled, speedBps = null, etaSec = null)
+                else -> it.copy(status = TransferStatus.Done, speedBps = null, etaSec = null, progress = it.progress?.copy(bytes = it.progress.total ?: it.progress.bytes))
+            }
+        }
+    }
+
     fun enqueueUpload(
         sessionId: String,
         profileName: String,
