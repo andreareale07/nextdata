@@ -5,6 +5,18 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+## [0.1.0-beta.9]
+
+Novità rispetto a 0.1.0-beta.8: il trascinamento verso Esplora file è completamente rifatto.
+
+### Cambiato
+- **PC, trascinamento verso Esplora file / Desktop:** gli elementi sono offerti a Windows come file virtuali (OLE) e la copia la esegue Windows, con il suo cursore. L'app non copia nulla in anticipo e resta sempre utilizzabile, qualunque sia la dimensione: nessun limite, nessun blocco, cartelle pesanti incluse. Elenco e contenuti arrivano direttamente dal server, con gli stessi limiti e gli stessi nomi sicuri del download; i nomi uguali a meno delle maiuscole ricevono un numero, i percorsi troppo lunghi per Windows vengono accorciati. Una copia interrotta dal server fallisce, senza lasciare file troncati.
+- **PC, progresso:** mentre Windows copia, tra i Trasferimenti compare una voce con avanzamento, velocità e tempo residuo, con il pulsante Annulla. La sessione resta aperta fino alla fine della copia.
+- **PC, più operazioni insieme:** finito il rilascio, l'app accetta subito altri trascinamenti e caricamenti da Windows mentre la copia prosegue.
+
+### Corretto
+- **Telefono:** dopo «Carica file» (e in ogni riconnessione automatica) si resta nella cartella in cui si era, invece di tornare alla radice del profilo.
+
 ## [0.1.0-beta.8]
 
 Novità rispetto a 0.1.0-beta.7: trascinamento di cartelle verso Esplora file.
