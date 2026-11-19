@@ -25,7 +25,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlin.coroutines.cancellation.CancellationException
 
-enum class TransferDirection { Download, Upload }
+enum class TransferDirection { Download, Upload, Copy }
 
 sealed interface TransferStatus {
     data object Queued : TransferStatus
@@ -117,6 +117,18 @@ private sealed interface Spec {
         val collision: String,
     ) : Spec {
         override fun release() = selection.release()
+    }
+
+    /** A copy inside the session: [refs] into the folder [destRef] (shown as [destName]). Nothing temporary to free. */
+    class Copy(
+        override var sessionId: String,
+        override val profileName: String,
+        val refs: List<String>,
+        val destRef: String,
+        val destName: String,
+        val collision: String,
+    ) : Spec {
+        override fun release() = Unit
     }
 }
 
@@ -233,6 +245,24 @@ class TransfersViewModel(
         return id
     }
 
+    /** Queues the copy of [refs] into the folder [destRef] of the same session (the engine copies on the server where it can). */
+    fun enqueueCopy(
+        sessionId: String,
+        profileName: String,
+        refs: List<String>,
+        names: List<String>,
+        destRef: String,
+        destName: String,
+        collision: String,
+    ): Long {
+        val id = nextId++
+        val spec = Spec.Copy(sessionId, profileName, refs, destRef, destName, collision)
+        specs[id] = spec
+        _items.update { it + TransferItem(id, TransferDirection.Copy, names, profileName, destinationLabel = destName) }
+        launchJob(id, spec)
+        return id
+    }
+
     fun cancel(id: Long) {
         jobs[id]?.cancel()
     }
@@ -305,6 +335,7 @@ class TransfersViewModel(
                     when (spec) {
                         is Spec.Download -> runDownload(id, spec, onProgress)
                         is Spec.Upload -> runUpload(id, spec, onProgress)
+                        is Spec.Copy -> runCopy(id, spec, onProgress)
                     }
                 }
             } catch (e: CancellationException) {
@@ -330,6 +361,17 @@ class TransfersViewModel(
                     update(id) { it.copy(status = TransferStatus.Done, speedBps = null, etaSec = null, progress = it.progress?.copy(bytes = it.progress.total ?: it.progress.bytes)) }
                     _completions.tryEmit(TransferCompletion(spec.sessionId, TransferDirection.Download, null, spec.refs.size, target.label, target.location))
                 }
+            }
+        }
+    }
+
+    private suspend fun runCopy(id: Long, spec: Spec.Copy, onProgress: (ProgressInfo) -> Unit) {
+        val r = outcome { client.copy(spec.sessionId, spec.refs, spec.destRef, spec.collision, onProgress) }
+        when (r) {
+            is Outcome.Failure -> update(id) { it.copy(status = TransferStatus.Failed(r.error), speedBps = null, etaSec = null) }
+            is Outcome.Success -> {
+                update(id) { it.copy(status = TransferStatus.Done, speedBps = null, etaSec = null, progress = it.progress?.copy(bytes = it.progress.total ?: it.progress.bytes)) }
+                _completions.tryEmit(TransferCompletion(spec.sessionId, TransferDirection.Copy, spec.destRef, r.value.size, spec.destName))
             }
         }
     }
@@ -360,6 +402,7 @@ data class TransfersSummary(
     val itemsDone: Int,
     val itemsTotal: Int,
     val speedBps: Long?,
+    val copies: Int = 0,
 ) {
     companion object {
         fun of(items: List<TransferItem>): TransfersSummary? {
@@ -376,6 +419,7 @@ data class TransfersSummary(
                 active = act.size,
                 uploads = act.count { it.direction == TransferDirection.Upload },
                 downloads = act.count { it.direction == TransferDirection.Download },
+                copies = act.count { it.direction == TransferDirection.Copy },
                 fraction = fraction,
                 itemsDone = act.sumOf { (it.progress?.itemsDone ?: 0).coerceAtMost(it.progress?.itemsTotal ?: 0) },
                 itemsTotal = act.sumOf { it.progress?.itemsTotal ?: 0 },

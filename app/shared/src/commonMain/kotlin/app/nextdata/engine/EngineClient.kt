@@ -19,10 +19,13 @@ import app.nextdata.protocol.InitResult
 import app.nextdata.protocol.ListResult
 import app.nextdata.protocol.Profile
 import app.nextdata.protocol.ProfileSecrets
+import app.nextdata.protocol.FolderStats
 import app.nextdata.protocol.ProgressInfo
+import app.nextdata.protocol.SpaceInfo
 import app.nextdata.protocol.Prompt
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -136,6 +139,45 @@ class EngineClient(val engine: Engine) {
             put("refs", kotlinx.serialization.json.JsonArray(refs.map { kotlinx.serialization.json.JsonPrimitive(it) }))
             put("dest_ref", destRef)
         })["moved"]?.let { (it as kotlinx.serialization.json.JsonPrimitive).content.toInt() } ?: 0
+
+    /** Copies [refs] (files and folders) into the folder [destRef] of the same session; nothing is replaced. Returns the copies made. */
+    suspend fun copy(
+        session: String,
+        refs: List<String>,
+        destRef: String,
+        collision: String,
+        onProgress: ((ProgressInfo) -> Unit)? = null,
+    ): List<Entry> = Codec.json.decodeFromJsonElement(
+        ListSerializer(Entry.serializer()),
+        call(
+            "session.copy",
+            buildJsonObject {
+                put("session", session)
+                put("refs", stringArray(refs))
+                put("dest_ref", destRef)
+                put("collision", collision)
+            },
+            onProgress,
+        )["entries"] ?: JsonArray(emptyList()),
+    )
+
+    /** Files, folders and bytes under [refs], counted recursively by the engine (cancel = cancel the calling coroutine). */
+    suspend fun stats(session: String, refs: List<String>, onProgress: ((ProgressInfo) -> Unit)? = null): FolderStats = Codec.decode(
+        call(
+            "session.stats",
+            buildJsonObject {
+                put("session", session)
+                put("refs", stringArray(refs))
+            },
+            onProgress,
+        ),
+    )
+
+    /** Capacity of the volume behind the session as the server declares it; null when it does not (S3, many servers). */
+    suspend fun space(session: String): SpaceInfo? {
+        val s = call("session.space", buildJsonObject { put("session", session) })["space"]
+        return if (s == null || s is JsonNull) null else Codec.json.decodeFromJsonElement(SpaceInfo.serializer(), s)
+    }
 
     suspend fun delete(session: String, refs: List<String>, recursive: Boolean, onProgress: ((ProgressInfo) -> Unit)? = null): Int =
         call(

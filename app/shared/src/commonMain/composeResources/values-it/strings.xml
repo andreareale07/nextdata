@@ -338,10 +338,10 @@
     <string name="detail_size">Dimensione</string>
     <string name="detail_total_size">Dimensione totale dei file</string>
     <string name="detail_type">Tipo</string>
-    <string name="details_empty_hint">Seleziona un elemento per vederne i dettagli.</string>
-    <string name="details_hide">Nascondi pannello dettagli</string>
-    <string name="details_show">Mostra pannello dettagli</string>
-    <string name="details_title">Dettagli</string>
+    <string name="details_empty_hint">Seleziona un elemento per vederne le proprietà.</string>
+    <string name="details_hide">Nascondi pannello proprietà</string>
+    <string name="details_show">Mostra pannello proprietà</string>
+    <string name="details_title">Proprietà</string>
     <string name="filter_clear">Cancella filtro</string>
     <string name="filter_no_results_body">Nessun elemento di questa cartella corrisponde a “%1$s”.</string>
     <string name="filter_no_results_title">Nessun risultato</string>
@@ -560,4 +560,48 @@
     <string name="msg_copy_body">Non viene caricata se non la usi.</string>
     <string name="msg_external_saved_title">Salvato dall’altra app e caricato</string>
     <string name="msg_external_changed_title">Modificato dall’altra app</string>
+    <!-- sposta / copia -->
+    <string name="action_move">Sposta</string>
+    <string name="action_copy">Copia</string>
+    <plurals name="move_title">
+        <item quantity="one">Sposta %1$d elemento</item>
+        <item quantity="other">Sposta %1$d elementi</item>
+    </plurals>
+    <plurals name="copy_title">
+        <item quantity="one">Copia %1$d elemento</item>
+        <item quantity="other">Copia %1$d elementi</item>
+    </plurals>
+    <string name="picker_hint">Scegli la cartella di destinazione</string>
+    <string name="picker_move_here">Sposta qui</string>
+    <string name="picker_copy_here">Copia qui</string>
+    <string name="picker_no_folders">Nessuna cartella qui</string>
+    <plurals name="msg_copied">
+        <item quantity="one">%1$d elemento copiato in “%2$s”</item>
+        <item quantity="other">%1$d elementi copiati in “%2$s”</item>
+    </plurals>
+    <string name="transfer_strip_copy">Copia in corso</string>
+    <string name="transfer_done_copy">Copiato</string>
+    <!-- proprietà -->
+    <string name="props_total_size">Dimensione totale</string>
+    <string name="props_files">File</string>
+    <string name="props_folders">Cartelle</string>
+    <string name="props_links">Collegamenti e file speciali</string>
+    <string name="props_partial">Almeno: la cartella è troppo grande per essere contata per intero.</string>
+    <string name="props_stop">Interrompi</string>
+    <string name="props_stopped">Conteggio interrotto</string>
+    <string name="props_recount">Conta di nuovo</string>
+    <plurals name="props_counting">
+        <item quantity="one">Conteggio in corso: %1$d elemento finora</item>
+        <item quantity="other">Conteggio in corso: %1$d elementi finora</item>
+    </plurals>
+    <!-- spazio di archiviazione -->
+    <string name="space_title">Spazio di archiviazione</string>
+    <string name="space_used">Usato</string>
+    <string name="space_free">Libero</string>
+    <string name="space_total">Totale</string>
+    <string name="space_chip">%1$s liberi</string>
+    <string name="space_note">Valore dichiarato dal server.</string>
+    <string name="space_nearly_full">Quasi pieno</string>
+    <string name="space_critical">Spazio quasi esaurito</string>
+    <string name="space_bar_desc">%1$s usati su %2$s</string>
 </resources>

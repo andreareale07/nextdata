@@ -18,6 +18,32 @@ pub struct RawEntry {
     pub mtime_ms: Option<i64>,
 }
 
+/// Capacity of the volume behind a session, as the server declares it (bytes). Every field is optional:
+/// WebDAV quota properties, for instance, may carry only the free space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SpaceInfo {
+    pub total: Option<u64>,
+    pub used: Option<u64>,
+    pub free: Option<u64>,
+}
+
+impl SpaceInfo {
+    /// Fills in the field that follows from the other two (total = used + free, and so on). None when nothing useful is known.
+    pub fn normalized(mut self) -> Option<SpaceInfo> {
+        match (self.total, self.used, self.free) {
+            (Some(t), None, Some(f)) => self.used = Some(t.saturating_sub(f)),
+            (Some(t), Some(u), None) => self.free = Some(t.saturating_sub(u)),
+            (None, Some(u), Some(f)) => self.total = Some(u.saturating_add(f)),
+            _ => {}
+        }
+        if self.total.is_none() && self.used.is_none() && self.free.is_none() {
+            None
+        } else {
+            Some(self)
+        }
+    }
+}
+
 /// How strongly a version identifier proves "the remote object is unchanged".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -179,4 +205,20 @@ pub struct Favorite {
     #[serde(rename = "ref")]
     pub ref_: String,
     pub name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn space_fills_the_missing_field() {
+        let n = |t, u, f| SpaceInfo { total: t, used: u, free: f }.normalized();
+        assert_eq!(n(Some(100), Some(30), None).unwrap().free, Some(70));
+        assert_eq!(n(Some(100), None, Some(25)).unwrap().used, Some(75));
+        assert_eq!(n(None, Some(30), Some(70)).unwrap().total, Some(100)); // WebDAV: total = used + free
+        assert_eq!(n(None, None, Some(70)).unwrap(), SpaceInfo { total: None, used: None, free: Some(70) });
+        assert_eq!(n(None, None, None), None);
+        assert_eq!(n(Some(10), Some(30), None).unwrap().free, Some(0)); // never negative
+    }
 }

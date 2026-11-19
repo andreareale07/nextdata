@@ -6,6 +6,10 @@ import app.nextdata.protocol.Collision
 import app.nextdata.protocol.EntryKind
 import app.nextdata.protocol.ErrInfo
 import app.nextdata.protocol.ErrorCodes
+import app.nextdata.protocol.FolderStats
+import app.nextdata.protocol.SpaceInfo
+import app.nextdata.ui.SpaceLevel
+import app.nextdata.ui.level
 import app.nextdata.protocol.ExportOptions
 import app.nextdata.protocol.Profile
 import app.nextdata.protocol.ProfileSecrets
@@ -693,5 +697,124 @@ class ViewModelsTest {
         val applied = (svc.apply(bytes, "pass-phrase") as Outcome.Success).value
         assertTrue(applied.applied)
         assertEquals(4, rig.app.profiles.state.value.profiles.size)
+    }
+
+    // ------------------------------------------------------------------ copy, properties, space
+
+    @Test
+    fun copyingQueuesATransferKeepsTheOriginalsAndNeverReplaces() = runTest {
+        val rig = Rig(this)
+        val b = connected(rig)
+        assertNull(b.mkdir("target"))
+        advanceUntilIdle()
+        val target = b.state.value.entries.first { it.name == "target" }
+        val readme = b.state.value.entries.first { it.name == "readme.md" }
+        val docs = b.state.value.entries.first { it.name == "Documents" }
+        // one command copies files and folders together
+        b.copyInto(listOf(readme, docs), target.ref, "target")
+        advanceUntilIdle()
+        val item = rig.app.transfers.items.value.single()
+        assertEquals(TransferDirection.Copy, item.direction)
+        assertEquals(TransferStatus.Done, item.status)
+        assertEquals(listOf("readme.md", "Documents"), item.names)
+        assertIs<UiMessage.Copied>(b.state.value.message)
+        // the originals are still where they were
+        assertTrue(b.state.value.entries.any { it.name == "readme.md" } && b.state.value.entries.any { it.name == "Documents" })
+        // and the copies are really there, folder contents included
+        val inTarget = (b.listFolders(target.ref) as Outcome.Success).value
+        assertEquals(listOf("Documents"), inTarget.folders.map { it.name })
+        val copiedDocs = inTarget.folders.single()
+        assertEquals(4L, (b.folderStats(listOf(copiedDocs)) as Outcome.Success).value.files)
+        // a second copy into the same folder never replaces: the names are numbered
+        b.copyInto(listOf(readme), target.ref, "target")
+        advanceUntilIdle()
+        b.open(target.ref)
+        advanceUntilIdle()
+        assertEquals(setOf("Documents", "readme.md", "readme (1).md"), b.state.value.entries.map { it.name }.toSet())
+    }
+
+    @Test
+    fun copyingAFolderIntoItselfFailsAsATransferWithTheEngineCode() = runTest {
+        val rig = Rig(this)
+        val b = connected(rig)
+        val docs = b.state.value.entries.first { it.name == "Documents" }
+        b.copyInto(listOf(docs), docs.ref, "Documents")
+        advanceUntilIdle()
+        val st = rig.app.transfers.items.value.single().status
+        assertIs<TransferStatus.Failed>(st)
+        assertEquals(ErrorCodes.INVALID_ARGUMENT, st.error.code)
+    }
+
+    @Test
+    fun propertiesCountFilesFoldersAndBytesRecursively() = runTest {
+        val rig = Rig(this)
+        val b = connected(rig)
+        val docs = b.state.value.entries.first { it.name == "Documents" }
+        val readme = b.state.value.entries.first { it.name == "readme.md" }
+        val one = (b.folderStats(listOf(docs)) as Outcome.Success).value
+        assertEquals(FolderStats(files = 4, dirs = 0, bytes = 1_250_000L + 48_213 + 912 + 88_020, links = 0, truncated = false), one)
+        // a mix of a folder and a file adds up; progress is reported while counting
+        var seen = 0
+        val both = (b.folderStats(listOf(docs, readme)) { seen = it.itemsDone } as Outcome.Success).value
+        assertEquals(5L, both.files)
+        assertEquals(one.bytes + 2_048, both.bytes)
+        assertTrue(seen > 0)
+        // links and special files are counted apart, never followed
+        val root = (b.folderStats(b.state.value.entries.filter { it.name == "latest" || it.name == "device0" }) as Outcome.Success).value
+        assertEquals(2L, root.links)
+        assertEquals(0L, root.files)
+        // a missing entry is a plain error
+        val gone = docs.copy(ref = "n999999")
+        assertEquals(ErrorCodes.NOT_FOUND, b.folderStats(listOf(gone)).errorOrNull?.code)
+    }
+
+    @Test
+    fun theFolderListForThePickerHasOnlyFolders() = runTest {
+        val rig = Rig(this)
+        val b = connected(rig)
+        val l = (b.listFolders(b.homeRef) as Outcome.Success).value
+        assertNull(l.parentRef)
+        assertTrue(l.folders.isNotEmpty() && l.folders.all { it.kind == EntryKind.DIR })
+        assertTrue("Documents" in l.folders.map { it.name } && "readme.md" !in l.folders.map { it.name })
+        // creating a folder from the picker works and is listed at once
+        assertNull(b.createFolderIn(l.ref, "from-picker"))
+        val again = (b.listFolders(l.ref) as Outcome.Success).value
+        assertTrue("from-picker" in again.folders.map { it.name })
+        assertEquals(ErrorCodes.ALREADY_EXISTS, b.createFolderIn(l.ref, "from-picker")?.code)
+    }
+
+    @Test
+    fun spaceIsKnownAfterConnectingAndFollowsWhatIsCopied() = runTest {
+        val rig = Rig(this)
+        val b = connected(rig)
+        val before = assertNotNull(b.state.value.space)
+        assertEquals(16_000_000_000L, before.total)
+        assertEquals(before.total!! - before.used!!, before.free)
+        assertNull(b.mkdir("target"))
+        advanceUntilIdle()
+        val target = b.state.value.entries.first { it.name == "target" }
+        val docs = b.state.value.entries.first { it.name == "Documents" }
+        b.copyInto(listOf(docs), target.ref, "target")
+        advanceUntilIdle()
+        val after = assertNotNull(b.state.value.space)
+        assertEquals(before.used!! + 1_387_145L, after.used, "a finished copy refreshes the space")
+        // a server that does not say: no value, and a failing request keeps the last one
+        rig.engine.failNext = ErrInfo(ErrorCodes.NETWORK)
+        b.refreshSpace()
+        advanceUntilIdle()
+        assertEquals(after, b.state.value.space)
+    }
+
+    @Test
+    fun usedShareAndWarningLevelsFollowTheNumbers() {
+        assertEquals(0.5f, SpaceInfo(total = 100, used = 50).usedFraction)
+        assertEquals(0.75f, SpaceInfo(total = 100, free = 25).usedFraction, "free is enough when the total is known")
+        assertNull(SpaceInfo(free = 25).usedFraction, "no total, no bar")
+        assertNull(SpaceInfo(total = 0, used = 0).usedFraction)
+        assertEquals(SpaceLevel.Normal, SpaceInfo(total = 100, used = 84).level())
+        assertEquals(SpaceLevel.Warning, SpaceInfo(total = 100, used = 85).level())
+        assertEquals(SpaceLevel.Warning, SpaceInfo(total = 100, used = 94).level())
+        assertEquals(SpaceLevel.Critical, SpaceInfo(total = 100, used = 95).level())
+        assertEquals(SpaceLevel.Normal, SpaceInfo(free = 1).level(), "unknown share: no alarm")
     }
 }

@@ -287,6 +287,60 @@ class FakeEngine(
                 }
                 buildJsonObject { put("moved", moved) }
             }
+            "session.space" -> {
+                val profileId = sessionProfile(str("session"))
+                val root = roots[profileId] ?: err(ErrorCodes.NOT_FOUND)
+                val total = 16_000_000_000L
+                val used = totalSize(root)
+                buildJsonObject {
+                    put("space", buildJsonObject { put("total", total); put("used", used); put("free", (total - used).coerceAtLeast(0)) })
+                }
+            }
+            "session.stats" -> {
+                sessionProfile(str("session"))
+                val refs = strList("refs")
+                if (refs.isEmpty()) err(ErrorCodes.INVALID_ARGUMENT, "name" to "refs")
+                val acc = LongArray(4) // files, dirs, bytes, links
+                refs.forEach { ref ->
+                    val node = nodes[ref] ?: err(ErrorCodes.NOT_FOUND, "path" to ref)
+                    if (latencyMs > 0) delay(latencyMs)
+                    when (node.kind) {
+                        EntryKind.DIR -> node.children.forEach { countInto(it, acc) }
+                        else -> countInto(node, acc)
+                    }
+                    progress(ProgressInfo(acc[2], null, node.name, (acc[0] + acc[1]).toInt(), 0))
+                }
+                buildJsonObject { put("files", acc[0]); put("dirs", acc[1]); put("bytes", acc[2]); put("links", acc[3]); put("truncated", false) }
+            }
+            "session.copy" -> {
+                sessionProfile(str("session"))
+                if (latencyMs > 0) delay(latencyMs)
+                val dest = nodes[str("dest_ref")] ?: err(ErrorCodes.NOT_FOUND)
+                if (dest.kind != EntryKind.DIR) err(ErrorCodes.INVALID_ARGUMENT)
+                val collision = strOrNull("collision") ?: Collision.RENAME
+                val picked = strList("refs").map { nodes[it] ?: err(ErrorCodes.NOT_FOUND, "path" to it) }
+                if (picked.isEmpty() || picked.any { it.parent == null }) err(ErrorCodes.POLICY_DENIED, "rule" to "copy_root")
+                picked.forEach { n ->
+                    var up: Node? = dest
+                    while (up != null) { if (up === n) err(ErrorCodes.INVALID_ARGUMENT, "path" to n.ref); up = up.parent }
+                }
+                val total = picked.sumOf { totalSize(it) }.coerceAtLeast(1)
+                simulate(::progress, total, picked.map { it.name })
+                val created = mutableListOf<Entry>()
+                picked.forEach { n ->
+                    val clash = dest.children.any { it.name == n.name }
+                    when {
+                        !clash -> created += entryOf(deepCopy(n, dest, n.name))
+                        collision == Collision.SKIP -> Unit
+                        collision == Collision.FAIL -> err(ErrorCodes.ALREADY_EXISTS, "name" to n.name)
+                        else -> created += entryOf(deepCopy(n, dest, uniqueName(dest, n.name)))
+                    }
+                }
+                buildJsonObject {
+                    put("copied", created.size)
+                    put("entries", Codec.json.encodeToJsonElement(ListSerializer(Entry.serializer()), created))
+                }
+            }
             "session.delete" -> {
                 sessionProfile(str("session"))
                 val refs = strList("refs")
@@ -533,6 +587,21 @@ class FakeEngine(
         nodes[n.ref] = n
         parent?.children?.add(n)
         return n
+    }
+
+    /** Counts [n] and everything under it into [acc] = files, dirs, bytes, links. */
+    private fun countInto(n: Node, acc: LongArray) {
+        when (n.kind) {
+            EntryKind.FILE -> { acc[0]++; acc[2] += n.size ?: 0 }
+            EntryKind.DIR -> { acc[1]++; n.children.forEach { countInto(it, acc) } }
+            else -> acc[3]++
+        }
+    }
+
+    private fun deepCopy(n: Node, parent: Node, name: String): Node {
+        val c = newNode(name, n.kind, n.size, parent)
+        n.children.toList().forEach { deepCopy(it, c, it.name) }
+        return c
     }
 
     private fun forget(n: Node) {

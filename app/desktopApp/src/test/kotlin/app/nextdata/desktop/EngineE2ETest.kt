@@ -82,6 +82,53 @@ class EngineE2ETest {
         }
     }
 
+    /** Copy, properties and space through the real bridge (JSON in and out of the DLL), on the `fake` provider. */
+    @Test
+    fun copyStatsAndSpaceThroughTheBridge() {
+        if (System.getenv("ND_ENGINE_E2E") != "1") {
+            println("EngineE2ETest skipped (set ND_ENGINE_E2E=1)")
+            return
+        }
+        val dll = System.getenv("ND_ENGINE_DLL")?.let(::File)
+            ?: generateSequence(File(".").absoluteFile) { it.parentFile }.map { File(it, "engine/dist/windows-x64/nd_engine.dll") }.first { it.isFile }
+        System.load(dll.absolutePath)
+        val client = EngineClient(JniEngine())
+        val data = Files.createTempDirectory("nde2e").toFile()
+        runBlocking {
+            client.init(File(data, "data").absolutePath, Base64.encode(ByteArray(32) { (it * 5).toByte() }))
+            val p = client.profilesSave(Profile(name = "E2E", protocol = ProtocolId.FAKE, host = "demo", auth = "none"), null)
+            val s = client.connect(p.id)
+
+            val space = client.space(s.session)
+            assertTrue(space != null && space.total != null && space.used != null && space.free != null, "the fake volume reports its capacity: $space")
+            assertTrue(space.used!! > 0 && space.free!! < space.total!!)
+
+            val docs = client.list(s.session, s.homeRef).entries.first { it.name == "Documenti" }
+            val st = client.stats(s.session, listOf(docs.ref))
+            assertEquals(3L, st.files) // relazione.txt, budget.csv, campione.pdf
+            assertEquals(0L, st.dirs)
+            assertTrue(st.bytes > 0 && !st.truncated)
+
+            val target = client.mkdir(s.session, s.homeRef, "Copie")
+            val progress = mutableListOf<Long>()
+            val made = client.copy(s.session, listOf(docs.ref), target.ref, Collision.RENAME) { progress += it.bytes }
+            assertEquals(listOf("Documenti"), made.map { it.name })
+            assertEquals(st.bytes, progress.last(), "progress reaches the byte total")
+            // a second copy is numbered, never replaces; the copy has the same contents as the original
+            val again = client.copy(s.session, listOf(docs.ref), target.ref, Collision.RENAME)
+            assertEquals(listOf("Documenti (1)"), again.map { it.name })
+            assertEquals(st, client.stats(s.session, listOf(made[0].ref)))
+            assertEquals(3, client.list(s.session, docs.ref).entries.size, "the original is untouched")
+            // a folder cannot be copied into itself
+            val e = runCatching { client.copy(s.session, listOf(docs.ref), docs.ref, Collision.RENAME) }.exceptionOrNull()
+            assertTrue(e is app.nextdata.engine.EngineException && e.error.code == "INVALID_ARGUMENT", "got $e")
+            val after = client.space(s.session)!!
+            assertTrue(after.used!! > space.used!!, "the copies take room")
+            client.closeSession(s.session)
+            client.profilesDelete(p.id)
+        }
+    }
+
     /**
      * Real SFTP server (infra/test-env/sftp_server.py). Enabled with ND_ENGINE_E2E_SFTP="host|port|user|pass";
      * covers connect with trust-on-first-use prompt, upload of a multi-chunk file and listing.

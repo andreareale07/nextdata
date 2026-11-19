@@ -416,6 +416,62 @@ impl Inner {
                 result?;
                 Ok(json!({"moved": moved}))
             }
+            "session.space" => {
+                // Capacity of the volume behind `ref` (default: the root). null = the server does not tell.
+                let s = self.session(&req_str(&a, "session")?)?;
+                let r = norm_ref(&opt_str(&a, "ref").unwrap_or_else(|| "/".into()))?;
+                let pr = Progress { cb: Arc::new(|_| {}), cancel: token };
+                let space = match pr.run(async { s.provider.space(&r).await }).await {
+                    Ok(v) => v.and_then(|x| x.normalized()),
+                    Err(e) if e.code == Code::Unsupported => None,
+                    Err(e) => return Err(e),
+                };
+                Ok(json!({"space": space}))
+            }
+            "session.stats" => {
+                // Properties of a selection: files, folders and bytes counted recursively (cancellable, with progress).
+                let s = self.session(&req_str(&a, "session")?)?;
+                let refs: Vec<String> = str_list(&a, "refs")?.iter().map(|r| norm_ref(r)).collect::<Result<_>>()?;
+                if refs.is_empty() {
+                    return Err(NdError::invalid("refs"));
+                }
+                let rep = self.reporter(op, token, false);
+                let st = transfer::stats(s.provider.as_ref(), &refs, &rep).await?;
+                rep.flush();
+                Ok(serde_json::to_value(st).map_err(|e| NdError::internal(e.to_string()))?)
+            }
+            "session.copy" => {
+                // Copies entries into a folder of the same session. Nothing is replaced (see `collision`); a folder is
+                // never copied into itself or below itself.
+                let s = self.session(&req_str(&a, "session")?)?;
+                let refs: Vec<String> = str_list(&a, "refs")?.iter().map(|r| norm_ref(r)).collect::<Result<_>>()?;
+                let dest = norm_ref(&req_str(&a, "dest_ref")?)?;
+                let col = Collision::parse(&opt_str(&a, "collision").unwrap_or_default())?;
+                if refs.is_empty() || refs.iter().any(|r| r == "/") {
+                    return Err(NdError::new(Code::PolicyDenied).with("rule", "copy_root"));
+                }
+                for r in &refs {
+                    if &dest == r || dest.starts_with(&format!("{}/", r.trim_end_matches('/'))) {
+                        return Err(NdError::invalid("dest_ref").with("rule", "copy_into_itself").with("path", r.clone()));
+                    }
+                }
+                let dst = s.provider.stat(&dest).await?;
+                if dst.kind != EntryKind::Dir {
+                    return Err(NdError::invalid("dest_ref").with("path", dest.clone()));
+                }
+                let rep = self.reporter(op, token, true);
+                let made = transfer::copy(s.provider.as_ref(), &refs, &dest, col, &rep).await;
+                *s.cache.lock().unwrap() = None;
+                let made = made?;
+                let mut entries = vec![];
+                for p in &made {
+                    if let Ok(st) = s.provider.stat(p).await {
+                        entries.push(transfer::entry_of(&parent_of(p).unwrap_or("/".into()), st));
+                    }
+                }
+                rep.flush();
+                Ok(json!({"copied": made.len(), "entries": entries}))
+            }
             "session.delete" => {
                 let s = self.session(&req_str(&a, "session")?)?;
                 let refs: Vec<String> = str_list(&a, "refs")?.iter().map(|r| norm_ref(r)).collect::<Result<_>>()?;

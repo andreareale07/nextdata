@@ -6,13 +6,13 @@
 use super::{Progress, Provider, Reader, Trust};
 use crate::error::{Code, NdError, Result};
 use crate::policy;
-use crate::types::{EntryKind, Profile, RawEntry, Secrets};
+use crate::types::{EntryKind, Profile, RawEntry, Secrets, SpaceInfo};
 use async_trait::async_trait;
 use futures::StreamExt;
 use smb::connection::EncryptionMode;
 use smb::{
     Client, ClientConfig, ConnectionConfig, CreateOptions, Dialect, Directory, DirAccessMask, FileAccessMask,
-    FileAllInformation, FileAttributes, FileCreateArgs, FileDispositionInformation, FileFullDirectoryInformation, FileRenameInformation,
+    FileAllInformation, FileAttributes, FileCreateArgs, FileDispositionInformation, FileFsFullSizeInformation, FileFullDirectoryInformation, FileRenameInformation,
     ReadAt, Resource, UncPath, WriteAt,
 };
 use std::net::{IpAddr, SocketAddr};
@@ -473,6 +473,35 @@ impl Provider for SmbProvider {
         }
         let _ = file.close().await;
         res
+    }
+
+    async fn space(&self, _path: &str) -> Result<Option<SpaceInfo>> {
+        // FileFsFullSizeInformation on the share root: what Explorer draws as the drive bar. "caller available" honours
+        // per-user quotas, "actual available" is the real free space of the volume.
+        let args = FileCreateArgs::make_open_existing(DirAccessMask::new().with_list_directory(true).with_synchronize(true).into());
+        let res = self.open("", &args, "/").await?;
+        let info = match &res {
+            Resource::Directory(d) => d.query_fs_info::<FileFsFullSizeInformation>().await,
+            _ => Err(smb::Error::InvalidState("share root is not a directory".into())),
+        };
+        Self::close_res(res).await;
+        let info = match info {
+            Ok(i) => i,
+            Err(e) => {
+                let err = map_smb(e, "/");
+                return if matches!(err.code, Code::Unsupported | Code::PermissionDenied) { Ok(None) } else { Err(err) };
+            }
+        };
+        let unit = (info.sectors_per_allocation_unit as u64).saturating_mul(info.bytes_per_sector as u64);
+        if unit == 0 || info.total_allocation_units == 0 {
+            return Ok(None);
+        }
+        let total = info.total_allocation_units.saturating_mul(unit);
+        Ok(Some(SpaceInfo {
+            total: Some(total),
+            free: Some(info.caller_available_allocation_units.min(info.total_allocation_units).saturating_mul(unit)),
+            used: Some(info.total_allocation_units.saturating_sub(info.actual_available_allocation_units).saturating_mul(unit)),
+        }))
     }
 
     async fn close(&self) {

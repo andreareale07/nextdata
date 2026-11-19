@@ -530,6 +530,218 @@ pub async fn delete(p: &dyn Provider, refs: &[String], recursive: bool, rep: &Re
     Ok(done)
 }
 
+// ---------------------------------------------------------------- stats (properties of files and folders)
+
+/// What a selection holds: counted recursively, links and special files are counted apart and never followed.
+#[derive(Default, Serialize, Debug, PartialEq, Eq)]
+pub struct Stats {
+    pub files: u64,
+    /// Folders strictly inside the selection (the selected folders themselves are not counted).
+    pub dirs: u64,
+    pub bytes: u64,
+    /// Symbolic links and special files.
+    pub links: u64,
+    /// The walk stopped at the entry/depth limit: the numbers are a lower bound.
+    pub truncated: bool,
+}
+
+pub async fn stats(p: &dyn Provider, refs: &[String], rep: &Reporter) -> Result<Stats> {
+    let pr = &rep.pr;
+    let mut st = Stats::default();
+    let mut seen = 0usize;
+    for r in refs {
+        pr.check()?;
+        let root = pr.run(async { p.stat(r).await }).await?;
+        match root.kind {
+            EntryKind::File => {
+                st.files += 1;
+                st.bytes += root.size.unwrap_or(0);
+                continue;
+            }
+            EntryKind::Dir => {}
+            _ => {
+                st.links += 1;
+                continue;
+            }
+        }
+        let mut stack: Vec<(String, usize)> = vec![(r.clone(), 0)];
+        while let Some((dir, depth)) = stack.pop() {
+            pr.check()?;
+            if depth >= MAX_DEPTH {
+                st.truncated = true;
+                continue;
+            }
+            let raw = pr.run(async { p.list(&dir).await }).await?;
+            let (entries, _) = crate::pathguard::sanitize_listing(&dir, raw);
+            for e in entries {
+                seen += 1;
+                match e.kind {
+                    EntryKind::File => {
+                        st.files += 1;
+                        st.bytes += e.size.unwrap_or(0);
+                    }
+                    EntryKind::Dir => {
+                        st.dirs += 1;
+                        stack.push((e.ref_, depth + 1));
+                    }
+                    _ => st.links += 1,
+                }
+            }
+            (rep.on_item)(basename(&dir), st.files + st.dirs, 0);
+            if seen > MAX_ENTRIES {
+                st.truncated = true;
+                return Ok(st);
+            }
+        }
+    }
+    Ok(st)
+}
+
+// ---------------------------------------------------------------- copy (inside one session)
+
+struct CopyItem {
+    from: String,
+    /// names below the root of the copied selection item (empty = the root itself)
+    rel: Vec<String>,
+    is_dir: bool,
+    size: u64,
+}
+
+/// Enumerates a selection item: the root first, then every folder before what it contains. Links and special files are
+/// skipped (a copy never follows them).
+async fn plan_copy(p: &dyn Provider, root_ref: &str, pr: &Progress) -> Result<Vec<CopyItem>> {
+    let root = pr.run(async { p.stat(root_ref).await }).await?;
+    match root.kind {
+        EntryKind::File => Ok(vec![CopyItem { from: root_ref.into(), rel: vec![], is_dir: false, size: root.size.unwrap_or(0) }]),
+        EntryKind::Dir => {
+            let mut out = vec![CopyItem { from: root_ref.into(), rel: vec![], is_dir: true, size: 0 }];
+            let mut stack: Vec<(String, Vec<String>, usize)> = vec![(root_ref.to_string(), vec![], 0)];
+            while let Some((dir, rel, depth)) = stack.pop() {
+                pr.check()?;
+                if depth >= MAX_DEPTH {
+                    return Err(NdError::new(Code::LimitExceeded).with("path", dir).with("limit", "depth"));
+                }
+                let raw = pr.run(async { p.list(&dir).await }).await?;
+                let (entries, _) = crate::pathguard::sanitize_listing(&dir, raw);
+                for e in entries {
+                    let mut r = rel.clone();
+                    r.push(e.name.clone());
+                    match e.kind {
+                        EntryKind::File => out.push(CopyItem { from: e.ref_, rel: r, is_dir: false, size: e.size.unwrap_or(0) }),
+                        EntryKind::Dir => {
+                            out.push(CopyItem { from: e.ref_.clone(), rel: r.clone(), is_dir: true, size: 0 });
+                            stack.push((e.ref_, r, depth + 1));
+                        }
+                        _ => {}
+                    }
+                    if out.len() > MAX_ENTRIES {
+                        return Err(NdError::new(Code::LimitExceeded).with("limit", "entries"));
+                    }
+                }
+            }
+            Ok(out)
+        }
+        _ => Err(NdError::new(Code::Unsupported).with("path", root_ref).detail("special file")),
+    }
+}
+
+/// Copies one file. Bytes the provider did not report itself (a server-side copy reports nothing) are added here.
+async fn copy_one(p: &dyn Provider, from: &str, to: &str, size: u64, rep: &Reporter) -> Result<()> {
+    let reported = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let (r2, outer) = (reported.clone(), rep.pr.cb.clone());
+    let pr = Progress {
+        cb: Arc::new(move |d| {
+            r2.fetch_add(d, std::sync::atomic::Ordering::Relaxed);
+            outer(d);
+        }),
+        cancel: rep.pr.cancel.clone(),
+    };
+    p.copy_file(from, to, size, &pr).await?;
+    let rest = size.saturating_sub(reported.load(std::sync::atomic::Ordering::Relaxed));
+    if rest > 0 {
+        rep.pr.report(rest);
+    }
+    Ok(())
+}
+
+/// Copies every `refs` item into the folder `dest` of the same session. Nothing is ever replaced: a name that already
+/// exists follows `col` (rename = "name (1)", skip, fail). A folder is copied with everything under it. Returns the refs
+/// of the copies made at the top level. Items copied before an error or a cancellation stay where they are.
+pub async fn copy(p: &dyn Provider, refs: &[String], dest: &str, col: Collision, rep: &Reporter) -> Result<Vec<String>> {
+    use std::sync::atomic::Ordering;
+    let pr = &rep.pr;
+    let mut plans = vec![];
+    let (mut total, mut count) = (0u64, 0u64);
+    for r in refs {
+        let items = plan_copy(p, r, pr).await?;
+        total += items.iter().map(|i| i.size).sum::<u64>();
+        count += items.iter().filter(|i| !i.is_dir).count() as u64;
+        plans.push((r, items));
+    }
+    rep.total.store(total, Ordering::Relaxed);
+    (rep.on_item)("", 0, count);
+    let mut created = vec![];
+    let mut done = 0u64;
+    for (root_ref, items) in plans {
+        pr.check()?;
+        let root_name = basename(root_ref).to_string();
+        let root_is_dir = items.first().is_some_and(|i| i.is_dir);
+        let mut name = root_name.clone();
+        // the root, with its own collision handling (a lost race picks the next free name)
+        let mut target_root: Option<String> = None;
+        for _ in 0..5 {
+            let Some(n) = unique_remote_name(p, dest, &name, col).await? else { break };
+            let target = join(dest, &n);
+            let attempt = if root_is_dir {
+                p.mkdir(&target).await
+            } else {
+                let it = &items[0];
+                (rep.on_item)(&root_name, done, count);
+                copy_one(p, &it.from, &target, it.size, rep).await
+            };
+            match attempt {
+                Ok(()) => {
+                    target_root = Some(target);
+                    break;
+                }
+                Err(e) if e.code == Code::AlreadyExists && col == Collision::Rename => {
+                    name = n;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        let Some(target_root) = target_root else {
+            done += items.iter().filter(|i| !i.is_dir).count() as u64;
+            continue; // skipped
+        };
+        if !root_is_dir {
+            done += 1;
+        }
+        for it in items.iter().filter(|i| !i.rel.is_empty()) {
+            pr.check()?;
+            let mut target = target_root.clone();
+            for c in &it.rel {
+                target = join(&target, c);
+            }
+            if it.is_dir {
+                match p.mkdir(&target).await {
+                    Ok(()) => {}
+                    Err(e) if e.code == Code::AlreadyExists => {}
+                    Err(e) => return Err(e),
+                }
+            } else {
+                (rep.on_item)(it.rel.last().map(|s| s.as_str()).unwrap_or(""), done, count);
+                copy_one(p, &it.from, &target, it.size, rep).await?;
+                done += 1;
+            }
+        }
+        created.push(target_root);
+    }
+    (rep.on_item)("", done, count);
+    Ok(created)
+}
+
 /// Used by the engine to convert an Entry list into JSON-able result.
 pub fn entry_of(parent: &str, raw: crate::types::RawEntry) -> Entry {
     Entry {

@@ -12,6 +12,7 @@ const server = new webdav.WebDAVServer({
   httpAuthentication: new webdav.HTTPBasicAuthentication(userManager, 'nd'),
   privilegeManager,
   requireAuthentification: true,
+  storageManager: new webdav.PerUserStorageManager(1000000000), // quota-available/used-bytes (RFC 4331)
 });
 server.setFileSystem('/dav', new webdav.PhysicalFileSystem(root), (ok) => {
   server.start(() => console.log('ready'));

@@ -1,6 +1,8 @@
 """Test SFTP server (asyncssh). usage: sftp_server.py <port> <root> <hostkey-file>
 User nd / password ndpass. Host key is created if missing (delete the file to rotate it)."""
 import asyncio, os, sys
+if not hasattr(os, 'statvfs'):  # Windows: asyncssh announces statvfs@openssh.com only when os.statvfs exists; SFTP.statvfs below answers
+    os.statvfs = lambda path: None
 import asyncssh
 
 port, root, keyfile = int(sys.argv[1]), sys.argv[2], sys.argv[3]
@@ -25,6 +27,11 @@ class Srv(asyncssh.SSHServer):
 class SFTP(asyncssh.SFTPServer):
     def __init__(self, chan):
         super().__init__(chan, chroot=os.fsencode(root))
+
+    def statvfs(self, path):
+        # fixed numbers (like `df` on a 4 GB volume, 1 GB used, 0.5 GB reserved for root) so tests can check them
+        return asyncssh.SFTPVFSAttrs(bsize=4096, frsize=4096, blocks=1000000, bfree=750000, bavail=700000,
+                                     files=100000, ffree=90000, favail=90000, fsid=1, flag=0, namemax=255)
 
 
 async def main():

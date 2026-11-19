@@ -2,7 +2,7 @@
 //! (russh checks the server key during key exchange, authentication happens afterwards).
 use super::{Progress, Provider, Reader, Trust, CHUNK};
 use crate::error::{Code, NdError, Result};
-use crate::types::{EntryKind, Profile, RawEntry, Secrets};
+use crate::types::{EntryKind, Profile, RawEntry, Secrets, SpaceInfo};
 use async_trait::async_trait;
 use russh::client::{self, AuthResult};
 use russh::keys::{Algorithm, EcdsaCurve, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
@@ -327,6 +327,28 @@ impl Provider for SftpProvider {
             return Err(map_sftp(e, path));
         }
         Ok(())
+    }
+
+    async fn space(&self, path: &str) -> Result<Option<SpaceInfo>> {
+        // statvfs@openssh.com: what `df` reports. Servers without the extension (or that refuse it) simply have no answer.
+        let v = match self.sftp.fs_info(path).await {
+            Ok(Some(v)) => v,
+            Ok(None) => return Ok(None),
+            Err(e) => {
+                let err = map_sftp(e, path);
+                return if err.code == Code::Unsupported || err.code == Code::PermissionDenied { Ok(None) } else { Err(err) };
+            }
+        };
+        let unit = if v.fragment_size > 0 { v.fragment_size } else { v.block_size };
+        if unit == 0 || v.blocks == 0 {
+            return Ok(None);
+        }
+        Ok(Some(SpaceInfo {
+            total: Some(v.blocks.saturating_mul(unit)),
+            // "free" for unprivileged users, as `df` shows it; "used" counts the root-reserved blocks too
+            free: Some(v.blocks_avail.saturating_mul(unit)),
+            used: Some(v.blocks.saturating_sub(v.blocks_free).saturating_mul(unit)),
+        }))
     }
 
     async fn close(&self) {

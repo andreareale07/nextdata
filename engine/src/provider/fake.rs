@@ -2,7 +2,7 @@
 use super::{Progress, Provider, Reader, CHUNK};
 use crate::error::{Code, NdError, Result};
 use crate::pathguard::{basename, join, norm_ref, parent_of};
-use crate::types::{EntryKind, RawEntry};
+use crate::types::{EntryKind, RawEntry, SpaceInfo};
 use async_trait::async_trait;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -174,6 +174,13 @@ impl Provider for FakeProvider {
         }
         let off = (offset as usize).min(v.data.len());
         Ok(Box::new(std::io::Cursor::new(v.data[off..].to_vec())))
+    }
+
+    async fn space(&self, _path: &str) -> Result<Option<SpaceInfo>> {
+        // a fixed 10 GB volume: what the files stored in memory take is "used" (demo and tests)
+        let used: u64 = self.nodes.lock().unwrap().values().map(|n| n.data.len() as u64).sum();
+        let total = 10_000_000_000u64;
+        Ok(Some(SpaceInfo { total: Some(total), used: Some(used), free: Some(total - used) }))
     }
 
     async fn put(&self, path: &str, mut src: Reader, _size: u64, overwrite: bool, pr: &Progress) -> Result<()> {

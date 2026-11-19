@@ -7,7 +7,11 @@ import app.nextdata.protocol.Breadcrumb
 import app.nextdata.protocol.Entry
 import app.nextdata.protocol.EntryKind
 import app.nextdata.protocol.ErrInfo
+import app.nextdata.protocol.Collision
 import app.nextdata.protocol.Favorite
+import app.nextdata.protocol.FolderStats
+import app.nextdata.protocol.ProgressInfo
+import app.nextdata.protocol.SpaceInfo
 import app.nextdata.protocol.Profile
 import app.nextdata.protocol.SortKey
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +33,7 @@ sealed interface UiMessage {
     data class FolderCreated(val name: String) : UiMessage
     data class Renamed(val name: String) : UiMessage
     data class Moved(val count: Int, val to: String) : UiMessage
+    data class Copied(val count: Int, val to: String) : UiMessage
     /** Too big to be copied to the file manager by dragging: use Download. */
     data class Deleted(val count: Int) : UiMessage
     data class DownloadQueued(val count: Int) : UiMessage
@@ -86,11 +91,16 @@ data class BrowserState(
     val preparing: Boolean = false,
     /** "Files and folders" upload being put together: number of items added so far; null = not open. */
     val message: UiMessage? = null,
+    /** Capacity of the volume as the server declares it; null = unknown (S3, servers that do not tell). */
+    val space: SpaceInfo? = null,
 ) {
     val isFavoriteHere: Boolean get() = ref != null && favorites.any { it.ref == ref }
     val selectionMode: Boolean get() = selection.isNotEmpty()
     val canGoUp: Boolean get() = parentRef != null
 }
+
+/** Subfolders of one folder, for the destination picker (move / copy). */
+data class FolderListing(val ref: String, val parentRef: String?, val breadcrumbs: List<Breadcrumb>, val folders: List<Entry>)
 
 /**
  * State holder for one open session (one profile). All paths/refs come from the engine
@@ -119,6 +129,7 @@ class BrowserViewModel(
     private var loadJob: Job? = null
     private var restoring = false
     private var closed = false
+    private var spaceJob: Job? = null
 
     init {
         scope.launch {
@@ -132,14 +143,18 @@ class BrowserViewModel(
                 val msg = when (c.direction) {
                     TransferDirection.Download -> UiMessage.DownloadDone(c.count, c.destinationLabel, c.location)
                     TransferDirection.Upload -> UiMessage.UploadDone(c.count)
+                    TransferDirection.Copy -> UiMessage.Copied(c.count, c.destinationLabel ?: "")
                 }
                 _state.update { it.copy(message = msg) }
+                // uploads and copies take room on the server
+                if (c.direction != TransferDirection.Download) refreshSpace()
             }
         }
         scope.launch {
             val r = outcome { client.favoritesList(profile.id) }
             if (r is Outcome.Success) _state.update { it.copy(favorites = r.value) }
         }
+        refreshSpace()
         if (initialRef != null && initialRef != homeRef) {
             restoring = true
             open(initialRef)
@@ -169,6 +184,16 @@ class BrowserViewModel(
     fun refresh() {
         val s = _state.value
         (s.ref ?: s.errorRef)?.let { open(it) }
+        refreshSpace()
+    }
+
+    /** Asks the server for the capacity of the volume. Failures are silent: the last known value stays (or none). */
+    fun refreshSpace() {
+        spaceJob?.cancel()
+        spaceJob = scope.launch {
+            val r = outcome { client.space(sessionId) }
+            if (r is Outcome.Success) _state.update { it.copy(space = r.value) }
+        }
     }
 
     fun retry() {
@@ -348,6 +373,41 @@ class BrowserViewModel(
         refresh()
         return r.errorOrNull
     }
+
+    /**
+     * Queues the copy of [entries] into the folder [destRef] (shown as [destName]). Nothing is replaced: a name that exists
+     * there gets "name (1)". Progress and cancellation live in the transfers list, like every other transfer.
+     */
+    fun copyInto(entries: List<Entry>, destRef: String, destName: String) {
+        if (entries.isEmpty()) return
+        transfers.enqueueCopy(sessionId, profile.name, entries.map { it.ref }, entries.map { it.name }, destRef, destName, Collision.RENAME)
+        _state.update { it.copy(selection = emptySet()) }
+    }
+
+    /** Subfolders of [ref] (dirs come first in the engine's order, so reading stops at the first file). */
+    suspend fun listFolders(ref: String): Outcome<FolderListing> = outcome {
+        var token: String? = null
+        var first: app.nextdata.protocol.ListResult? = null
+        val dirs = mutableListOf<Entry>()
+        do {
+            val l = client.list(sessionId, ref, token, 500, SortKey.NAME, false)
+            if (first == null) first = l
+            dirs += l.entries.filter { it.kind == EntryKind.DIR }
+            token = if (l.entries.any { it.kind != EntryKind.DIR }) null else l.nextToken
+        } while (token != null)
+        FolderListing(first!!.ref, first.parentRef, first.breadcrumbs, dirs)
+    }
+
+    /** Creates a folder inside [parentRef] (the destination picker); returns the error, null on success. */
+    suspend fun createFolderIn(parentRef: String, name: String): ErrInfo? {
+        val r = outcome { client.mkdir(sessionId, parentRef, name) }
+        if (r is Outcome.Success && parentRef == _state.value.ref) refresh()
+        return r.errorOrNull
+    }
+
+    /** Files, folders and bytes inside [entries], counted by the engine (cancel by cancelling the calling coroutine). */
+    suspend fun folderStats(entries: List<Entry>, onProgress: (ProgressInfo) -> Unit = {}): Outcome<FolderStats> =
+        outcome { client.stats(sessionId, entries.map { it.ref }, onProgress) }
 
     // ------------------------------------------------------------------ drag & drop (desktop)
 

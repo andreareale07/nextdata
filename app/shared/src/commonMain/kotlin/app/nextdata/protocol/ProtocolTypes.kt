@@ -169,6 +169,31 @@ data class ProgressInfo(
         get() = total?.takeIf { it > 0 }?.let { (bytes.toDouble() / it.toDouble()).coerceIn(0.0, 1.0).toFloat() }
 }
 
+/** Capacity of the volume behind a session, as the server declares it (bytes). Any field may be missing. */
+@Serializable
+data class SpaceInfo(val total: Long? = null, val used: Long? = null, val free: Long? = null) {
+    /** Used share 0f..1f, or null when it cannot be worked out (no total, or neither used nor free). */
+    val usedFraction: Float?
+        get() {
+            val t = total?.takeIf { it > 0 } ?: return null
+            val u = used ?: free?.let { t - it } ?: return null
+            return (u.toDouble() / t.toDouble()).coerceIn(0.0, 1.0).toFloat()
+        }
+}
+
+/** What a selection holds, counted recursively by the engine (`session.stats`). */
+@Serializable
+data class FolderStats(
+    val files: Long = 0,
+    /** Folders inside the selection (the selected folders themselves are not counted). */
+    val dirs: Long = 0,
+    val bytes: Long = 0,
+    /** Symbolic links and special files: counted apart, never followed. */
+    val links: Long = 0,
+    /** The walk stopped at the engine's limit: the numbers are a lower bound. */
+    val truncated: Boolean = false,
+)
+
 /** Error as emitted by the engine: only `code` + `params` are shown (localized), never free text. */
 data class ErrInfo(
     val code: String,

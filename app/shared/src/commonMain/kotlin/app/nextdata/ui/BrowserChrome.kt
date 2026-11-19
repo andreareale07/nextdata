@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.CompareArrows
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Logout
@@ -45,10 +46,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import app.nextdata.engine.EngineClient
+import app.nextdata.i18n.LocalLanguageTag
 import app.nextdata.i18n.errorText
 import app.nextdata.protocol.Entry
 import app.nextdata.protocol.EntryKind
 import app.nextdata.protocol.ErrInfo
+import app.nextdata.protocol.FolderStats
+import app.nextdata.protocol.SpaceInfo
 import app.nextdata.protocol.ProtocolId
 import app.nextdata.protocol.SortKey
 import app.nextdata.shared.resources.*
@@ -58,10 +62,12 @@ import app.nextdata.state.BrowserListing
 import app.nextdata.state.BrowserState
 import app.nextdata.state.BrowserViewModel
 import app.nextdata.state.FileKinds
+import app.nextdata.state.Outcome
 import app.nextdata.state.Formatters
 import app.nextdata.state.Screen
 import app.nextdata.state.SecurityInfo
 import app.nextdata.state.ViewMode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -252,7 +258,9 @@ fun CompactBottomBar(
     onSearch: () -> Unit,
     onSecurity: () -> Unit,
     onAdd: () -> Unit,
+    onSpace: () -> Unit,
 ) {
+    val tag = LocalLanguageTag.current
     var overflow by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var places by remember { mutableStateOf(false) }
@@ -289,6 +297,18 @@ fun CompactBottomBar(
                             onClick = { overflow = false; vm.toggleFavoriteHere() },
                         )
                         DropdownMenuItem(text = { Text(stringResource(Res.string.places_title)) }, leadingIcon = { Icon(Icons.Outlined.Bookmarks, null) }, onClick = { overflow = false; places = true })
+                        state.space?.let { sp ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(stringResource(Res.string.space_title))
+                                        sp.free?.let { Text(stringResource(Res.string.space_chip, Formatters.size(it, tag)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Outlined.DataUsage, null) },
+                                onClick = { overflow = false; onSpace() },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(Res.string.nav_transfers) + if (activeTransfers > 0) " ($activeTransfers)" else "") },
                             leadingIcon = { Icon(Icons.AutoMirrored.Outlined.CompareArrows, null) },
@@ -307,12 +327,22 @@ fun CompactBottomBar(
 
 /** Bottom bar shown while files are selected. */
 @Composable
-fun SelectionBottomBar(selected: List<Entry>, vm: BrowserViewModel, visible: List<Entry>, onDelete: (List<Entry>) -> Unit, onRename: (Entry) -> Unit) {
+fun SelectionBottomBar(
+    selected: List<Entry>,
+    vm: BrowserViewModel,
+    visible: List<Entry>,
+    onDelete: (List<Entry>) -> Unit,
+    onRename: (Entry) -> Unit,
+    onMove: (List<Entry>) -> Unit,
+    onCopy: (List<Entry>) -> Unit,
+) {
     Surface(color = MaterialTheme.colorScheme.primaryContainer) {
         Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             NdIconButton(Icons.Outlined.Close, stringResource(Res.string.action_clear_selection), vm::clearSelection)
             NdIconButton(Icons.Outlined.SelectAll, stringResource(Res.string.action_select_all), { vm.selectAll(visible) })
             NdIconButton(Icons.Outlined.Download, stringResource(Res.string.action_download), { vm.download(selected) })
+            NdIconButton(Icons.AutoMirrored.Outlined.DriveFileMove, stringResource(Res.string.action_move), { onMove(selected) })
+            NdIconButton(Icons.Outlined.ContentCopy, stringResource(Res.string.action_copy), { onCopy(selected) })
             if (selected.size == 1) NdIconButton(Icons.Outlined.DriveFileRenameOutline, stringResource(Res.string.action_rename), { onRename(selected.first()) })
             NdIconButton(Icons.Outlined.Delete, stringResource(Res.string.action_delete), { onDelete(selected) }, tint = MaterialTheme.colorScheme.error)
         }
@@ -462,8 +492,13 @@ fun DesktopStatusBar(
     transfersExpanded: Boolean,
     onToggleTransfers: () -> Unit,
     onSecurity: () -> Unit,
+    space: SpaceInfo? = null,
+    onRefreshSpace: () -> Unit = {},
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+      BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // the status bar has room to spare: only a really narrow window drops the text of the space chip
+        val narrow = maxWidth < 640.dp
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp).semantics { liveRegion = LiveRegionMode.Polite },
             verticalAlignment = Alignment.CenterVertically,
@@ -484,6 +519,9 @@ fun DesktopStatusBar(
                 )
             }
             Spacer(Modifier.weight(1f))
+            // below ~640 dp the chip keeps only its icon and bar
+            SpaceChip(space, onRefreshSpace, short = narrow)
+            if (space != null) Spacer(Modifier.width(4.dp))
             SecurityChip(security, onSecurity)
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = onToggleTransfers, contentPadding = PaddingValues(horizontal = 8.dp)) {
@@ -493,6 +531,7 @@ fun DesktopStatusBar(
                 Icon(if (transfersExpanded) Icons.Outlined.ExpandMore else Icons.Outlined.ExpandLess, null, Modifier.size(16.dp))
             }
         }
+      }
     }
 }
 
@@ -572,6 +611,7 @@ fun DetailsPane(
     selected: List<Entry>,
     profileName: String,
     tag: String,
+    vm: BrowserViewModel,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -583,14 +623,14 @@ fun DetailsPane(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                DetailsContent(state, selected, profileName, tag)
+                DetailsContent(state, selected, profileName, tag, vm)
             }
         }
     }
 }
 
 @Composable
-fun DetailsContent(state: BrowserState, selected: List<Entry>, profileName: String, tag: String) {
+fun DetailsContent(state: BrowserState, selected: List<Entry>, profileName: String, tag: String, vm: BrowserViewModel) {
     when {
         selected.size == 1 -> {
             val e = selected.first()
@@ -605,13 +645,17 @@ fun DetailsContent(state: BrowserState, selected: List<Entry>, profileName: Stri
             DetailLine(stringResource(Res.string.detail_modified), e.mtimeMs?.let { Formatters.dateTime(it, tag) } ?: "—")
             val folder = BreadcrumbNav.displayPath(state.breadcrumbs)
             DetailLine(stringResource(Res.string.detail_location), (if (folder.endsWith("/")) folder else "$folder/") + e.name, mono = true)
+            if (e.kind == EntryKind.DIR) FolderStatsBlock(vm, selected, tag)
         }
         selected.size > 1 -> {
             Text(pluralStringResource(Res.plurals.selected_count, selected.size, selected.size), style = MaterialTheme.typography.titleMedium)
-            val bytes = BrowserListing.selectionBytes(state.entries, state.selection)
-            DetailLine(stringResource(Res.string.detail_total_size), Formatters.size(bytes, tag))
-            val dirs = selected.count { it.kind == EntryKind.DIR }
-            if (dirs > 0) Text(pluralStringResource(Res.plurals.detail_folders_note, dirs, dirs), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (selected.any { it.kind == EntryKind.DIR }) {
+                // folders have no size of their own: the engine counts everything inside the selection
+                FolderStatsBlock(vm, selected, tag)
+            } else {
+                val bytes = BrowserListing.selectionBytes(state.entries, state.selection)
+                DetailLine(stringResource(Res.string.detail_total_size), Formatters.size(bytes, tag))
+            }
         }
         else -> {
             Icon(Icons.Outlined.Folder, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
@@ -619,6 +663,48 @@ fun DetailsContent(state: BrowserState, selected: List<Entry>, profileName: Stri
             DetailLine(stringResource(Res.string.detail_location), BreadcrumbNav.displayPath(state.breadcrumbs), mono = true)
             DetailLine(stringResource(Res.string.detail_items), pluralStringResource(Res.plurals.status_items, state.entries.size, state.entries.size))
             Text(stringResource(Res.string.details_empty_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * What the selected folders hold: total size, files and folders, counted recursively by the engine. It starts shortly after the
+ * selection settles (clicking through folders must not start a walk for each one), shows progress and can be stopped.
+ */
+@Composable
+private fun FolderStatsBlock(vm: BrowserViewModel, selected: List<Entry>, tag: String) {
+    val key = remember(selected) { selected.map { it.ref } }
+    var restart by remember(key) { mutableIntStateOf(0) }
+    var stopped by remember(key) { mutableStateOf(false) }
+    var counted by remember(key) { mutableIntStateOf(0) }
+    var result by remember(key) { mutableStateOf<Outcome<FolderStats>?>(null) }
+    LaunchedEffect(key, restart, stopped) {
+        if (stopped) return@LaunchedEffect // leaving this effect cancelled the running count in the engine
+        result = null
+        counted = 0
+        delay(350)
+        result = vm.folderStats(selected) { counted = it.itemsDone }
+    }
+    when (val r = result) {
+        null -> if (stopped) {
+            Text(stringResource(Res.string.props_stopped), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { stopped = false; restart++ }) { Text(stringResource(Res.string.props_recount)) }
+        } else {
+            Text(pluralStringResource(Res.plurals.props_counting, counted, counted), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            TextButton(onClick = { stopped = true }) { Text(stringResource(Res.string.props_stop)) }
+        }
+        is Outcome.Failure -> Text(errorText(r.error), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        is Outcome.Success -> {
+            val st = r.value
+            val atLeast = if (st.truncated) "≥ " else ""
+            DetailLine(stringResource(Res.string.props_total_size), atLeast + Formatters.size(st.bytes, tag) + if (st.bytes >= 1024) " (" + st.bytes + " B)" else "")
+            Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                DetailLine(stringResource(Res.string.props_files), atLeast + st.files)
+                DetailLine(stringResource(Res.string.props_folders), atLeast + st.dirs)
+            }
+            if (st.links > 0) DetailLine(stringResource(Res.string.props_links), st.links.toString())
+            if (st.truncated) Text(stringResource(Res.string.props_partial), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

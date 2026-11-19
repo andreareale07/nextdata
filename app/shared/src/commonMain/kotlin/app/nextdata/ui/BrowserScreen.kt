@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -58,6 +59,9 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 
+/** Move or copy [entries] somewhere: what the destination picker is open for. */
+private class Relocate(val copy: Boolean, val entries: List<Entry>)
+
 /**
  * The file browser for the open session. [compact] = single-pane phone layout (collapsing top bar, FAB);
  * otherwise the three-zone layout (command bar, content, optional details pane, status bar), used by
@@ -95,13 +99,15 @@ fun BrowserScreen(
     var fabSheet by remember { mutableStateOf(false) }
     var filterOpen by remember { mutableStateOf(false) }
     var securityOpen by remember { mutableStateOf(false) }
-    var detailsFor by remember { mutableStateOf<Entry?>(null) }
+    var detailsFor by remember { mutableStateOf<List<Entry>?>(null) }
+    var relocating by remember { mutableStateOf<Relocate?>(null) }
+    var spaceSheet by remember { mutableStateOf(false) }
     val widths = remember { ColumnWidths() }
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
     val filterFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
-    val dialogOpen = newFolder || renaming != null || deleting != null || sheetFor != null || fabSheet || securityOpen || detailsFor != null
+    val dialogOpen = newFolder || renaming != null || deleting != null || sheetFor != null || fabSheet || securityOpen || detailsFor != null || relocating != null || spaceSheet
 
     // snackbar feedback; a finished download offers "Show" to open the destination
     val msg = state.message
@@ -168,6 +174,8 @@ fun BrowserScreen(
 
     val dlLabel = stringResource(Res.string.action_download)
     val renameLabel = stringResource(Res.string.action_rename)
+    val moveLabel = stringResource(Res.string.action_move)
+    val copyLabel = stringResource(Res.string.action_copy)
     val deleteLabel = stringResource(Res.string.action_delete)
     val openLabel = stringResource(Res.string.action_open)
     val favAddLabel = stringResource(Res.string.action_favorite_add)
@@ -194,11 +202,13 @@ fun BrowserScreen(
         if (single && (e.kind == EntryKind.DIR || e.kind == EntryKind.SYMLINK)) add(EntryAction(Icons.Outlined.FolderOpen, openLabel) { vm.open(e.ref) })
         add(EntryAction(Icons.Outlined.Download, dlLabel) { vm.download(targets) })
         if (single) add(EntryAction(Icons.Outlined.DriveFileRenameOutline, renameLabel) { renaming = e })
+        add(EntryAction(Icons.AutoMirrored.Outlined.DriveFileMove, moveLabel) { relocating = Relocate(false, targets) })
+        add(EntryAction(Icons.Outlined.ContentCopy, copyLabel) { relocating = Relocate(true, targets) })
         if (single && e.kind == EntryKind.DIR) {
             val fav = state.favorites.any { it.ref == e.ref }
             add(EntryAction(if (fav) Icons.Outlined.Star else Icons.Outlined.StarBorder, if (fav) favRemoveLabel else favAddLabel) { vm.toggleFavorite(e.ref, e.name) })
         }
-        if (single) add(EntryAction(Icons.Outlined.Info, detailsLabel) { if (compact) detailsFor = e else if (!settings.detailsOpen) toggleDetails() })
+        add(EntryAction(Icons.Outlined.Info, detailsLabel) { if (compact) detailsFor = targets else if (!settings.detailsOpen) toggleDetails() })
         add(EntryAction(Icons.Outlined.Delete, deleteLabel, destructive = true) { deleting = targets })
     }
 
@@ -236,12 +246,13 @@ fun BrowserScreen(
                     )
                 },
                 bottomBar = {
-                    if (state.selectionMode) SelectionBottomBar(selected, vm, visible, onDelete = { deleting = it }, onRename = { renaming = it })
+                    if (state.selectionMode) SelectionBottomBar(selected, vm, visible, onDelete = { deleting = it }, onRename = { renaming = it }, onMove = { relocating = Relocate(false, it) }, onCopy = { relocating = Relocate(true, it) })
                     else CompactBottomBar(
                         controller, state, vm, viewMode, transfers.count { it.status.isActive },
                         onSearch = { filterOpen = !filterOpen; if (!filterOpen) vm.setFilter("") },
                         onSecurity = { securityOpen = true },
                         onAdd = { fabSheet = true },
+                        onSpace = { spaceSheet = true },
                     )
                 },
             ) { pad ->
@@ -277,6 +288,7 @@ fun BrowserScreen(
                     DesktopStatusBar(
                         state, visible, selected.size, tag, security,
                         transfers.count { it.status.isActive }, transfersExpanded, onToggleTransfers, onSecurity = { securityOpen = true },
+                        space = state.space, onRefreshSpace = vm::refreshSpace,
                     )
                 },
             ) { pad ->
@@ -307,7 +319,7 @@ fun BrowserScreen(
                         AnimatedVisibility(detailsOpen, enter = fadeIn(tween(motionMs(160))), exit = fadeOut(tween(motionMs(120)))) {
                             Row {
                                 VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                DetailsPane(state, selected, vm.profile.name, tag, onClose = ::toggleDetails, modifier = Modifier.width(300.dp).fillMaxHeight())
+                                DetailsPane(state, selected, vm.profile.name, tag, vm, onClose = ::toggleDetails, modifier = Modifier.width(300.dp).fillMaxHeight())
                             }
                         }
                     }
@@ -345,11 +357,22 @@ fun BrowserScreen(
         })
     }
     if (securityOpen) SecurityDialog(security, vm.profile.name, onDismiss = { securityOpen = false })
-    detailsFor?.let { e ->
+    relocating?.let { r ->
+        FolderPickerDialog(
+            vm = vm, copy = r.copy, entries = r.entries, startRef = state.ref, compact = compact,
+            onDismiss = { relocating = null },
+            onConfirm = { destRef, destName ->
+                relocating = null
+                if (r.copy) vm.copyInto(r.entries, destRef, destName) else scope.launch { vm.moveInto(r.entries, destRef, destName) }
+            },
+        )
+    }
+    if (spaceSheet) state.space?.let { SpaceSheet(it, onRefresh = vm::refreshSpace, onDismiss = { spaceSheet = false }) }
+    detailsFor?.let { list ->
         AlertDialog(
             onDismissRequest = { detailsFor = null },
             title = { Text(stringResource(Res.string.details_title)) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { DetailsContent(state, listOf(e), vm.profile.name, tag) } },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { DetailsContent(state, list, vm.profile.name, tag, vm) } },
             confirmButton = { TextButton(onClick = { detailsFor = null }) { Text(stringResource(Res.string.action_close)) } },
         )
     }
@@ -414,6 +437,7 @@ private fun messageText(m: UiMessage): String = when (m) {
     is UiMessage.FolderCreated -> stringResource(Res.string.msg_folder_created, m.name)
     is UiMessage.Renamed -> stringResource(Res.string.msg_renamed, m.name)
     is UiMessage.Moved -> pluralStringResource(Res.plurals.msg_moved, m.count, m.count, m.to)
+    is UiMessage.Copied -> pluralStringResource(Res.plurals.msg_copied, m.count, m.count, m.to)
     is UiMessage.Deleted -> pluralStringResource(Res.plurals.msg_deleted, m.count, m.count)
     is UiMessage.DownloadQueued -> pluralStringResource(Res.plurals.msg_download_queued, m.count, m.count)
     is UiMessage.UploadQueued -> pluralStringResource(Res.plurals.msg_upload_queued, m.count, m.count)

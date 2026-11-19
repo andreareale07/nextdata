@@ -479,6 +479,18 @@ impl Provider for S3Provider {
         Ok(buf)
     }
 
+    async fn copy_file(&self, from: &str, to: &str, size: u64, pr: &Progress) -> Result<()> {
+        // a single CopyObject handles up to 5 GiB; beyond that the data goes through this device in parts
+        const COPY_MAX: u64 = 5 * 1024 * 1024 * 1024;
+        if size >= COPY_MAX {
+            return super::copy_via_stream(self, from, to, size, pr).await;
+        }
+        if super::exists(self, to).await? {
+            return Err(NdError::new(Code::AlreadyExists).with("path", to));
+        }
+        pr.run(async { self.copy_key(&key_of(from), &key_of(to)).await }).await
+    }
+
     async fn replace(&self, ctx: &crate::replace::ReplaceCtx, src: Reader, log: &mut dyn crate::journal::ReplaceLog, pr: &Progress) -> Result<crate::replace::Replaced> {
         super::replace_via_put(self, ctx, src, true, log, pr).await
     }

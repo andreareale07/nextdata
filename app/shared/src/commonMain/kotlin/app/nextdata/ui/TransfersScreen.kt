@@ -75,6 +75,7 @@ fun TransfersStrip(controller: AppController, modifier: Modifier = Modifier) {
     val label = stringResource(
         when {
             sum.uploads > 0 && sum.downloads == 0 -> Res.string.transfer_strip_upload
+            sum.copies > 0 && sum.uploads == 0 && sum.downloads == 0 -> Res.string.transfer_strip_copy
             sum.downloads > 0 && sum.uploads == 0 -> Res.string.transfer_strip_download
             else -> Res.string.transfer_strip_both
         },
@@ -89,7 +90,7 @@ fun TransfersStrip(controller: AppController, modifier: Modifier = Modifier) {
     Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = modifier.fillMaxWidth().clickable(role = Role.Button) { controller.navigate(Screen.Transfers) }) {
         Column {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (sum.downloads > 0 && sum.uploads == 0) Icons.Outlined.Download else Icons.Outlined.Upload, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(if (sum.copies > 0 && sum.uploads == 0 && sum.downloads == 0) Icons.Outlined.ContentCopy else if (sum.downloads > 0 && sum.uploads == 0) Icons.Outlined.Download else Icons.Outlined.Upload, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 Spacer(Modifier.size(10.dp))
                 Text(
                     text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -192,7 +193,7 @@ private fun TransferRow(item: TransferItem, vm: TransfersViewModel) {
                 TransferStatus.Done -> Icons.Outlined.CheckCircle to MaterialTheme.nd.success
                 is TransferStatus.Failed -> Icons.Outlined.ErrorOutline to MaterialTheme.colorScheme.error
                 TransferStatus.Cancelled -> Icons.Outlined.Cancel to MaterialTheme.colorScheme.onSurfaceVariant
-                else -> (if (item.direction == TransferDirection.Download) Icons.Outlined.Download else Icons.Outlined.Upload) to MaterialTheme.colorScheme.primary
+                else -> (when (item.direction) { TransferDirection.Download -> Icons.Outlined.Download; TransferDirection.Upload -> Icons.Outlined.Upload; TransferDirection.Copy -> Icons.Outlined.ContentCopy }) to MaterialTheme.colorScheme.primary
             }
             Icon(icon, null, tint = tint, modifier = Modifier.size(26.dp))
             Spacer(Modifier.size(12.dp))
@@ -211,7 +212,7 @@ private fun TransferRow(item: TransferItem, vm: TransfersViewModel) {
                             item.etaSec?.let { append(" · ").append(stringResource(Res.string.transfer_eta, Formatters.duration(it))) }
                         }
                     }
-                    TransferStatus.Done -> stringResource(if (item.direction == TransferDirection.Download) Res.string.transfer_done_download else Res.string.transfer_done_upload)
+                    TransferStatus.Done -> stringResource(when (item.direction) { TransferDirection.Download -> Res.string.transfer_done_download; TransferDirection.Upload -> Res.string.transfer_done_upload; TransferDirection.Copy -> Res.string.transfer_done_copy })
                     TransferStatus.Cancelled -> stringResource(Res.string.transfer_cancelled)
                     is TransferStatus.Failed -> if (s.storage == app.nextdata.platform.StorageProblem.PermissionLost) stringResource(Res.string.transfer_storage_permission) else errorText(s.error)
                 }

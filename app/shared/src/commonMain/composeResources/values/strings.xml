@@ -338,10 +338,10 @@
     <string name="detail_size">Size</string>
     <string name="detail_total_size">Total size of the files</string>
     <string name="detail_type">Type</string>
-    <string name="details_empty_hint">Select an item to see its details.</string>
-    <string name="details_hide">Hide details pane</string>
-    <string name="details_show">Show details pane</string>
-    <string name="details_title">Details</string>
+    <string name="details_empty_hint">Select an item to see its properties.</string>
+    <string name="details_hide">Hide properties pane</string>
+    <string name="details_show">Show properties pane</string>
+    <string name="details_title">Properties</string>
     <string name="filter_clear">Clear filter</string>
     <string name="filter_no_results_body">No item in this folder matches “%1$s”.</string>
     <string name="filter_no_results_title">No matches</string>
@@ -560,4 +560,48 @@
     <string name="msg_copy_body">It is not uploaded unless you use it.</string>
     <string name="msg_external_saved_title">Saved by the other app and uploaded</string>
     <string name="msg_external_changed_title">Changed by the other app</string>
+    <!-- move / copy -->
+    <string name="action_move">Move</string>
+    <string name="action_copy">Copy</string>
+    <plurals name="move_title">
+        <item quantity="one">Move %1$d item</item>
+        <item quantity="other">Move %1$d items</item>
+    </plurals>
+    <plurals name="copy_title">
+        <item quantity="one">Copy %1$d item</item>
+        <item quantity="other">Copy %1$d items</item>
+    </plurals>
+    <string name="picker_hint">Choose the destination folder</string>
+    <string name="picker_move_here">Move here</string>
+    <string name="picker_copy_here">Copy here</string>
+    <string name="picker_no_folders">No folders here</string>
+    <plurals name="msg_copied">
+        <item quantity="one">%1$d item copied to “%2$s”</item>
+        <item quantity="other">%1$d items copied to “%2$s”</item>
+    </plurals>
+    <string name="transfer_strip_copy">Copying</string>
+    <string name="transfer_done_copy">Copied</string>
+    <!-- properties -->
+    <string name="props_total_size">Total size</string>
+    <string name="props_files">Files</string>
+    <string name="props_folders">Folders</string>
+    <string name="props_links">Links and special files</string>
+    <string name="props_partial">At least: the folder is too big to be counted completely.</string>
+    <string name="props_stop">Stop</string>
+    <string name="props_stopped">Counting stopped</string>
+    <string name="props_recount">Count again</string>
+    <plurals name="props_counting">
+        <item quantity="one">Counting… %1$d item so far</item>
+        <item quantity="other">Counting… %1$d items so far</item>
+    </plurals>
+    <!-- storage space -->
+    <string name="space_title">Storage space</string>
+    <string name="space_used">Used</string>
+    <string name="space_free">Free</string>
+    <string name="space_total">Total</string>
+    <string name="space_chip">%1$s free</string>
+    <string name="space_note">Value reported by the server.</string>
+    <string name="space_nearly_full">Almost full</string>
+    <string name="space_critical">Almost out of space</string>
+    <string name="space_bar_desc">%1$s used of %2$s</string>
 </resources>

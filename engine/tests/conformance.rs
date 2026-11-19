@@ -240,6 +240,74 @@ fn conformance(h: &H, pid: &str, label: &str) {
     // and back up: moving to the parent works too
     assert_eq!(h.ok("session.move", json!({"session": s, "refs": [join_ref(&target, "sub2")], "dest_ref": sb}))["moved"], 1);
 
+    // ---- properties: recursive counts (links and special files are not followed)
+    let sub2 = join_ref(&sb, "sub2");
+    let st = h.ok("session.stats", json!({"session": s, "refs": [sub2]}));
+    assert_eq!((st["files"].as_u64(), st["dirs"].as_u64(), st["bytes"].as_u64()), (Some(2), Some(1), Some(300_000)), "{st}");
+    assert_eq!(st["truncated"], false);
+    let st = h.ok("session.stats", json!({"session": s, "refs": [sub2, join_ref(&sb, "renamed.txt")]}));
+    assert_eq!((st["files"].as_u64(), st["bytes"].as_u64()), (Some(3), Some(300_006)), "{st}");
+    assert_eq!(h.code("session.stats", json!({"session": s, "refs": [join_ref(&sb, "nope")]})), "NOT_FOUND");
+    assert_eq!(h.code("session.stats", json!({"session": s, "refs": []})), "INVALID_ARGUMENT");
+
+    // ---- copy: files and folders with one command, nothing replaced
+    let cp = h.ok("session.copy", json!({"session": s, "refs": [sub2, join_ref(&sb, "renamed.txt")], "dest_ref": target}));
+    assert_eq!(cp["copied"], 2, "{cp}");
+    let lt = h.ok("session.list", json!({"session": s, "ref": target}));
+    assert_eq!(names(&lt), vec!["sub2", "renamed (1).txt", "renamed.txt"]); // "renamed.txt" was already there: the copy is numbered
+    let copy_dir = join_ref(&target, "sub2");
+    let st = h.ok("session.stats", json!({"session": s, "refs": [copy_dir]}));
+    assert_eq!((st["files"].as_u64(), st["dirs"].as_u64(), st["bytes"].as_u64()), (Some(2), Some(1), Some(300_000)), "{st}");
+    let cdl = h.path("copy_dl");
+    fs::create_dir_all(&cdl).unwrap();
+    h.ok("transfer.download", json!({"session": s, "refs": [copy_dir], "dest_dir": cdl.to_string_lossy(), "collision": "fail"}));
+    assert_eq!(fs::read(cdl.join("sub2/b.bin")).unwrap(), rand_bytes(300_000, 1), "the copy must be byte-identical");
+    // the originals are untouched
+    assert!(names(&h.ok("session.list", json!({"session": s, "ref": sb}))).contains(&"sub2".to_string()));
+    // collision policies, same as downloads and uploads
+    let again = h.ok("session.copy", json!({"session": s, "refs": [sub2], "dest_ref": target, "collision": "rename"}));
+    assert_eq!(again["entries"][0]["name"], "sub2 (1)", "{again}");
+    assert_eq!(h.code("session.copy", json!({"session": s, "refs": [sub2], "dest_ref": target, "collision": "fail"})), "ALREADY_EXISTS");
+    assert_eq!(h.ok("session.copy", json!({"session": s, "refs": [sub2], "dest_ref": target, "collision": "skip"}))["copied"], 0);
+    // a copy in the folder it comes from is numbered too
+    let here = h.ok("session.copy", json!({"session": s, "refs": [join_ref(&sb, "renamed.txt")], "dest_ref": sb}));
+    assert_eq!(here["entries"][0]["name"], "renamed (1).txt", "{here}");
+    // refusals
+    assert_eq!(h.code("session.copy", json!({"session": s, "refs": [sub2], "dest_ref": sub2})), "INVALID_ARGUMENT"); // into itself
+    assert_eq!(h.code("session.copy", json!({"session": s, "refs": [sb], "dest_ref": join_ref(&sb, "sub2")})), "INVALID_ARGUMENT"); // below itself
+    assert_eq!(h.code("session.copy", json!({"session": s, "refs": ["/"], "dest_ref": target})), "POLICY_DENIED");
+    assert_eq!(h.code("session.copy", json!({"session": s, "refs": [sub2], "dest_ref": join_ref(&target, "renamed.txt")})), "INVALID_ARGUMENT"); // destination is a file
+    assert_eq!(h.code("session.copy", json!({"session": s, "refs": [join_ref(&sb, "nope")], "dest_ref": target})), "NOT_FOUND");
+    // progress is reported in bytes, also for server-side copies
+    let op = h.start("session.copy", json!({"session": s, "refs": [sub2], "dest_ref": target, "collision": "rename"}));
+    let (r, prog) = h.wait_full(op);
+    r.unwrap_or_else(|e| panic!("copy: {e}"));
+    assert_eq!(prog.last().unwrap()["bytes"], 300_000, "{prog:?}");
+    assert_eq!(prog.last().unwrap()["total"], 300_000);
+
+    // ---- space: null when the server does not tell, otherwise coherent numbers
+    let sp = h.ok("session.space", json!({"session": s}));
+    if !sp["space"].is_null() {
+        let (t, u, f) = (sp["space"]["total"].as_u64(), sp["space"]["used"].as_u64(), sp["space"]["free"].as_u64());
+        assert!(t.is_some() || u.is_some() || f.is_some(), "{sp}");
+        if let (Some(t), Some(f)) = (t, f) {
+            assert!(f <= t, "{sp}");
+        }
+        if let (Some(t), Some(u)) = (t, u) {
+            assert!(u <= t, "{sp}");
+        }
+    }
+    eprintln!("[{label}] space: {}", sp["space"]);
+    match label {
+        // infra/test-env/sftp_server.py: 1,000,000 blocks of 4 KiB, 750,000 free, 700,000 free for users
+        "sftp" => assert_eq!(sp["space"], json!({"total": 4_096_000_000u64, "used": 1_024_000_000u64, "free": 2_867_200_000u64}), "{sp}"),
+        // infra/test-env/dav_server.js: a 1 GB quota (used + available)
+        "webdav" => assert_eq!(sp["space"]["total"], 1_000_000_000u64, "{sp}"),
+        // S3 has no capacity at all
+        "s3" => assert!(sp["space"].is_null(), "{sp}"),
+        _ => {}
+    }
+
     // ---- big file with progress, then cancel
     let big = src.join("big.bin");
     fs::write(&big, rand_bytes(20 * 1024 * 1024, 9)).unwrap();

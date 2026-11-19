@@ -1,6 +1,6 @@
 //! Provider abstraction: protocol engines implement this; everything above is protocol-agnostic.
 use crate::error::{Code, NdError, Result};
-use crate::types::{EntryKind, RawEntry, RemoteVersion};
+use crate::types::{EntryKind, RawEntry, RemoteVersion, SpaceInfo};
 use async_trait::async_trait;
 use std::future::Future;
 use std::sync::Arc;
@@ -114,7 +114,24 @@ pub trait Provider: Send + Sync {
     ) -> Result<crate::replace::Replaced> {
         crate::replace::replace_with_backup(self, ctx, src, log, pr).await
     }
+    /// Capacity of the volume that holds `path`, as the server declares it. `Ok(None)` = the protocol or the
+    /// server does not tell (S3, SFTP without `statvfs@openssh.com`, WebDAV without quota properties).
+    async fn space(&self, _path: &str) -> Result<Option<SpaceInfo>> {
+        Ok(None)
+    }
+    /// Create the file `to` as a copy of the file `from` (`size` bytes) inside the same session. Never replaces:
+    /// an existing `to` is ALREADY_EXISTS. Default: read it back and write it again through this device (correct
+    /// everywhere); providers with a server-side copy (S3, WebDAV) override it so the data never leaves the server.
+    async fn copy_file(&self, from: &str, to: &str, size: u64, pr: &Progress) -> Result<()> {
+        copy_via_stream(self, from, to, size, pr).await
+    }
     async fn close(&self) {}
+}
+
+/// Copy through this device: `open_read` -> `put` (no overwrite).
+pub async fn copy_via_stream<P: Provider + ?Sized>(p: &P, from: &str, to: &str, size: u64, pr: &Progress) -> Result<()> {
+    let r = pr.run(async { p.open_read(from, 0).await }).await?;
+    p.put(to, r, size, false, pr).await
 }
 
 /// Replacement through the provider's own overwrite (`put(overwrite=true)`): used where the protocol has a

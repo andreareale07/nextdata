@@ -5,7 +5,7 @@ use super::{Progress, Provider, Reader, Trust, CHUNK};
 use crate::dates::{parse_http_date, parse_rfc3339};
 use crate::error::{Code, NdError, Result};
 use crate::pathguard::{basename, norm_ref, parent_of};
-use crate::types::{EntryKind, Profile, RawEntry, RemoteVersion, Secrets, VersionStrength};
+use crate::types::{EntryKind, Profile, RawEntry, RemoteVersion, Secrets, SpaceInfo, VersionStrength};
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
@@ -235,6 +235,40 @@ pub fn parse_etag(xml: &[u8]) -> Result<Option<String>> {
     }
 }
 
+/// `(quota-available-bytes, quota-used-bytes)` of a multistatus. A negative or unparsable value (Nextcloud answers -3 for
+/// "unlimited", -2 for "unknown") means "not known", never a size.
+pub fn parse_quota(xml: &[u8]) -> Result<(Option<u64>, Option<u64>)> {
+    let mut rd = quick_xml::Reader::from_reader(xml);
+    rd.config_mut().trim_text(true);
+    let (mut avail, mut used) = (None, None);
+    let mut text = String::new();
+    loop {
+        match rd.read_event() {
+            Err(e) => return Err(NdError::new(Code::ServerAnomaly).detail(e)),
+            Ok(Event::Eof) => break,
+            Ok(Event::DocType(_)) => return Err(NdError::new(Code::ServerAnomaly).detail("DOCTYPE not allowed")),
+            Ok(Event::Start(_)) => text.clear(),
+            Ok(Event::Text(t)) => text.push_str(&t.xml10_content()),
+            Ok(Event::GeneralRef(r)) => {
+                let name: &str = &r;
+                text.push(crate::xmlutil::resolve_ref(name)?);
+            }
+            Ok(Event::End(e)) => {
+                let n = AsRef::<str>::as_ref(&e.local_name()).to_ascii_lowercase();
+                let v = text.trim().parse::<i64>().ok().filter(|v| *v >= 0).map(|v| v as u64);
+                match n.as_str() {
+                    "quota-available-bytes" if avail.is_none() => avail = v,
+                    "quota-used-bytes" if used.is_none() => used = v,
+                    _ => {}
+                }
+                text.clear();
+            }
+            _ => {}
+        }
+    }
+    Ok((avail, used))
+}
+
 fn href_to_path(href: &str, base: &str) -> Option<String> {
     let mut h = href.trim();
     if let Some(i) = h.find("://") {
@@ -364,6 +398,33 @@ impl Provider for WebDavProvider {
         super::replace_via_put(self, ctx, src, false, log, pr).await
     }
 
+    async fn space(&self, path: &str) -> Result<Option<SpaceInfo>> {
+        // RFC 4331 quota properties, optional: a server that does not know them answers 404 inside the multistatus.
+        let body = r#"<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><quota-available-bytes/><quota-used-bytes/></prop></propfind>"#;
+        let url = format!("{}/", self.url(path).trim_end_matches('/'));
+        let r = match self.send(self.req("PROPFIND", &url).header("Depth", "0").header("Content-Type", "application/xml").body(body), path).await {
+            Ok(r) => r,
+            Err(e) if matches!(e.code, Code::PermissionDenied | Code::NotFound | Code::AlreadyExists) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let mut s = r.bytes_stream();
+        while let Some(c) = s.next().await {
+            buf.extend_from_slice(&c.map_err(|e| map_reqwest(e, &self.slot))?);
+            if buf.len() > MAX_XML {
+                return Err(NdError::new(Code::LimitExceeded).with("path", path));
+            }
+        }
+        let (avail, used) = parse_quota(&buf)?;
+        Ok(SpaceInfo { total: None, used, free: avail }.normalized())
+    }
+
+    async fn copy_file(&self, from: &str, to: &str, _size: u64, _pr: &Progress) -> Result<()> {
+        // server-side COPY: the data never leaves the server; Overwrite: F never replaces an existing target
+        let dest = self.url(to);
+        self.send(self.req("COPY", &self.url(from)).header("Destination", dest).header("Overwrite", "F"), to).await.map(|_| ())
+    }
+
     async fn put(&self, path: &str, src: Reader, size: u64, overwrite: bool, pr: &Progress) -> Result<()> {
         if !overwrite && super::exists(self, path).await? {
             return Err(NdError::new(Code::AlreadyExists).with("path", path));
@@ -421,6 +482,19 @@ mod tests {
     fn doctype_rejected() {
         let xml = br#"<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><multistatus/>"#;
         assert!(parse_multistatus(xml, "").is_err());
+    }
+
+    #[test]
+    fn quota_parsing() {
+        let ok = br#"<D:multistatus xmlns:D="DAV:"><D:response><D:propstat><D:prop><D:quota-available-bytes>1200</D:quota-available-bytes><D:quota-used-bytes>2500</D:quota-used-bytes></D:prop></D:propstat></D:response></D:multistatus>"#;
+        assert_eq!(parse_quota(ok).unwrap(), (Some(1200), Some(2500)));
+        // Nextcloud: -3 = unlimited, -2 = unknown -> not a size
+        let neg = br#"<d:multistatus xmlns:d="DAV:"><d:response><d:propstat><d:prop><d:quota-available-bytes>-3</d:quota-available-bytes><d:quota-used-bytes>77</d:quota-used-bytes></d:prop></d:propstat></d:response></d:multistatus>"#;
+        assert_eq!(parse_quota(neg).unwrap(), (None, Some(77)));
+        // property reported as 404: empty prop element
+        let missing = br#"<d:multistatus xmlns:d="DAV:"><d:response><d:propstat><d:prop><d:quota-available-bytes/></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response></d:multistatus>"#;
+        assert_eq!(parse_quota(missing).unwrap(), (None, None));
+        assert!(parse_quota(br#"<!DOCTYPE x [<!ENTITY a "b">]><a/>"#).is_err());
     }
 
     #[test]
