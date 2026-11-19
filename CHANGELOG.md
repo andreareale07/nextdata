@@ -5,6 +5,18 @@ il progetto segue il [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+## [0.1.0-beta.10]
+
+Novità rispetto a 0.1.0-beta.9: spazio disponibile, Sposta e Copia, proprietà delle cartelle.
+
+### Aggiunto
+- **Spazio disponibile:** una barra con «1,2 TB liberi» (usato, libero e totale al clic). Su PC sta nella barra di stato, prima del lucchetto della connessione; su telefono è la voce «Spazio» del menu ⋮. Compare solo quando il server lo comunica (SMB, SFTP e WebDAV con quota; non S3) e diventa ambra oltre l'85% e rossa oltre il 95%.
+- **Sposta e Copia:** due voci nel menu degli elementi (tasto destro su PC, foglio dal basso su telefono) e due icone nella barra di selezione del telefono. Aprono lo stesso selettore di cartella (con «Nuova cartella») e un solo pulsante: «Sposta qui» o «Copia qui». Si applicano a più file e cartelle insieme.
+- **Copia:** avanza tra i Trasferimenti (con avanzamento, annulla e riprova) e non sostituisce mai nulla: un nome già presente diventa «nome (1)». Su S3 e WebDAV la copia avviene sul server; su SFTP e SMB i dati passano dal dispositivo (traffico doppio, da tenere presente con i dati mobili).
+
+### Cambiato
+- **Proprietà:** «Dettagli» si chiama ora «Proprietà». Per le cartelle (e per selezioni miste) mostra la dimensione totale, i file e le cartelle contati dal motore, con avanzamento e pulsante «Interrompi».
+
 ## [0.1.0-beta.9]
 
 Novità rispetto a 0.1.0-beta.8: il trascinamento verso Esplora file è completamente rifatto.
@@ -107,7 +119,8 @@ Prima versione beta pubblica.
 - SMB disabilitato in attesa del relativo controllo di sicurezza.
 - Gli installer Windows non sono ancora firmati.
 
-[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.4...HEAD
+[Non rilasciato]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.10...HEAD
+[0.1.0-beta.10]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.9...v0.1.0-beta.10
 [0.1.0-beta.4]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/andreareale07/nextdata/compare/v0.1.0-beta.1...v0.1.0-beta.2
